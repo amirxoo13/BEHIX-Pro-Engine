@@ -6,7 +6,9 @@
   "main": "src/index.js",
   "scripts": {
     "start": "node src/server.js",
-    "dev": "node --watch src/server.js"
+    "dev": "node --watch src/server.js",
+    "demo": "node src/cli.js --demo",
+    "cli": "node src/cli.js"
   },
   "engines": {
     "node": ">=20"

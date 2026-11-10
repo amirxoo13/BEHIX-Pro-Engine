@@ -38,11 +38,7 @@ export function buildDirectingPrompt(scenario) {
 export async function generateDirecting(scenario) {
   const apiKey = process.env.GOOGLE_API_KEY;
   if (!apiKey) {
-    return {
-      error: 'GOOGLE_API_KEY تنظیم نشده',
-      prompt: buildDirectingPrompt(scenario),
-      mock: true
-    };
+    throw new Error('GOOGLE_API_KEY تنظیم نشده — موتور آمادهٔ اتصال به Gemini است');
   }
 
   // فراخوانی ساده به Gemini API (REST)
