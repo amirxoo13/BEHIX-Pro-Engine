@@ -77,12 +77,13 @@ function samplePage(tex, u, v, out) {
   return out;
 }
 
-export function createFrame(width = 1280, height = 720) {
+export function createFrame(width = 1280, height = 720, background = null) {
+  const [br, bg, bb] = background || [28, 32, 40];
   const pixels = new Uint8Array(width * height * 3);
   for (let i = 0; i < pixels.length; i += 3) {
-    pixels[i] = 28;
-    pixels[i + 1] = 32;
-    pixels[i + 2] = 40;
+    pixels[i] = br;
+    pixels[i + 1] = bg;
+    pixels[i + 2] = bb;
   }
   return { width, height, pixels };
 }
@@ -199,7 +200,7 @@ function rasterTriangle(frame, tex, p0x, p0y, p1x, p1y, p2x, p2y, uv, i0, i1, i2
 export function renderCharacters(characters, options = {}) {
   const width = options.width || 1280;
   const height = options.height || 720;
-  const frame = createFrame(width, height);
+  const frame = createFrame(width, height, options.background || null);
   const { lookup } = loadAtlas();
 
   const cam = {

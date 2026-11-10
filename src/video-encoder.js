@@ -83,6 +83,7 @@ export async function renderVideo(timeline, options = {}) {
         width,
         height,
         skeleton,
+        background: timeline?.backgroundAt ? timeline.backgroundAt(t) : null,
         worldX: worldX ?? cam.worldX,
         worldY: worldY ?? cam.worldY,
         scale: scale ?? (cam.scale != null ? cam.scale * resScale : undefined)

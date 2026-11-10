@@ -58,7 +58,7 @@ export class Timeline {
 
   /** لیست پایدار شناسهٔ کاراکترها (از ریشهٔ کارگردانی؛ صحنه‌ها زیرمجموعه‌اند) */
   characterIds() {
-    const chars = this.directing.characters || [];
+    const chars = (this.directing.characters || []).slice(0, 3);
     if (chars.length) return chars.map((c, i) => c.id || `char${i}`);
     // اگر ریشه خالی بود، از همهٔ صحنه‌ها جمع کن
     const ids = new Set();
@@ -93,6 +93,16 @@ export class Timeline {
       if (s.startSec <= timeSec && (!previous || s.startSec > previous.startSec)) previous = s;
     }
     return previous || scenes[0];
+  }
+
+  /** رنگ پس‌زمینهٔ صحنهٔ فعال (#rrggbb از کارگردانی)؛ null = پیش‌فرض رندرر */
+  backgroundAt(timeSec) {
+    const bg = this.sceneAt(timeSec)?.background;
+    if (typeof bg !== 'string') return null;
+    const m = bg.trim().match(/^#?([0-9a-fA-F]{6})$/);
+    if (!m) return null;
+    const n = parseInt(m[1], 16);
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
   }
 
   /** پارامترهای دوربین برای زمان داده شده، از فیلد camera صحنه (باگ #6) */

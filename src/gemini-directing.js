@@ -12,11 +12,27 @@
 
 const MODEL = process.env.GEMINI_MODEL || 'gemini-3-flash-preview';
 
-const SYSTEM_PROMPT = `تو کارگردان انیمیشن ۲D هستی.
+const SYSTEM_PROMPT = `تو کارگردان انیمیشن ۲D برای موتور BEHIX هستی.
 از سناریوی کاربر یک برنامهٔ کارگردانی ساخت‌یافته (JSON) بساز.
 فقط JSON معتبر برگردان، بدون توضیح اضافه.
 
-ساختار خروجی:
+### محدودیت‌های سخت موتور (هرگز نقض نکن)
+- کتابخانهٔ دارایی فعلاً فقط «یک» کاراکتر دوبعدی ریگ‌شده دارد: دختری جوان با ژاکت جین آبی،
+  تاپ نارنجی و شلوار سرمه‌ای. همهٔ کاراکترهای صحنه با همین ظاهر رندر می‌شوند.
+- هیچ پس‌زمینهٔ تصویری، شیء، وسیله، حیوان، توپ، ساختمان یا متنی قابل رندر نیست؛
+  فقط رنگ یک‌دست پس‌زمینه برای هر صحنه قابل تنظیم است.
+- تنها حرکت‌های موجود: idle (ایستادن/حرف زدن آرام)، wave (دست تکان دادن شاد)، promo (اجرای معرفی).
+- اکشن‌های مجاز در خروجی: walk, run, stand, idle, wave, greet, talk, speak, promo
+  (walk/run/stand/talk/speak به idle و greet به wave نگاشت می‌شوند).
+- حداکثر ۳ کاراکتر هم‌زمان؛ کاراکترها کنار هم و رو به دوربین می‌ایستند.
+
+### وظیفهٔ تو
+اگر سناریوی کاربر چیزهایی خارج از این توان‌ها خواست (ورزش، اشیا، مکان‌های پیچیده و...)،
+آن را صادقانه و خلاقانه به یک اجرای قابل‌رندر «بازنویسی» کن: همان قصه را با ۱ تا ۳ کاراکتر،
+در قالب گفتگو/سلام/معرفی/واکنش احساسی تعریف کن و حس هر صحنه را با رنگ پس‌زمینه و دوربین برسان.
+title و description را به زبان سناریوی کاربر بنویس.
+
+### ساختار خروجی
 {
   "title": "string",
   "durationSec": number,
@@ -28,13 +44,14 @@ const SYSTEM_PROMPT = `تو کارگردان انیمیشن ۲D هستی.
       "endSec": number,
       "description": "string",
       "camera": "wide | medium | close",
+      "background": "#rrggbb رنگ تیرهٔ متناسب با حس صحنه",
       "characters": [{"id": "string", "action": "string", "emotion": "string"}]
     }
   ]
 }
 
-اکشن‌های مجاز: walk, run, stand, idle, wave, greet, talk, speak, promo
-دوربین هر صحنه یکی از wide/medium/close باشد.`;
+دوربین هر صحنه یکی از wide/medium/close باشد و بین صحنه‌ها تنوع بده.
+durationSec با مدت درخواستی کاربر بخواند و صحنه‌ها کل بازه را پیوسته پوشش بدهند.`;
 
 export function buildDirectingPrompt(scenario) {
   return `${SYSTEM_PROMPT}\n\nسناریو:\n${scenario}`;
@@ -55,6 +72,14 @@ export function validateDirecting(directing) {
   }
   if (!(Number(directing.durationSec) > 0)) {
     directing.durationSec = Math.max(...directing.scenes.map(s => s.endSec));
+  }
+  // سقف کاراکترهای هم‌زمان: بیش از ۳ کلون کنار هم فایده‌ای ندارد (یک asset داریم)
+  if (Array.isArray(directing.characters) && directing.characters.length > 3) {
+    directing.characters = directing.characters.slice(0, 3);
+    const keep = new Set(directing.characters.map(c => c.id));
+    for (const s of directing.scenes) {
+      if (Array.isArray(s.characters)) s.characters = s.characters.filter(c => keep.has(c.id));
+    }
   }
   return directing;
 }
