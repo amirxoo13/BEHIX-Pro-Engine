@@ -10,7 +10,7 @@
  * خطاهای upstream به کلاینت نشت نمی‌کنند؛ فقط در لاگ سرور می‌روند.
  */
 
-const MODEL = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
+const MODEL = process.env.GEMINI_MODEL || 'gemini-3-flash-preview';
 
 const SYSTEM_PROMPT = `تو کارگردان انیمیشن ۲D هستی.
 از سناریوی کاربر یک برنامهٔ کارگردانی ساخت‌یافته (JSON) بساز.
@@ -61,9 +61,12 @@ export function validateDirecting(directing) {
 
 async function callVertexAi(prompt) {
   const project = process.env.VERTEX_AI_PROJECT;
-  const location = process.env.VERTEX_AI_LOCATION || 'us-central1';
+  const location = process.env.VERTEX_AI_LOCATION || 'global';
   const { VertexAI } = await import('@google-cloud/vertexai');
-  const vertexAI = new VertexAI({ project, location });
+  // روی location سراسری، endpoint بدون پیشوند منطقه است
+  const options = { project, location };
+  if (location === 'global') options.apiEndpoint = 'aiplatform.googleapis.com';
+  const vertexAI = new VertexAI(options);
   const model = vertexAI.getGenerativeModel({
     model: MODEL,
     generationConfig: { temperature: 0.4, responseMimeType: 'application/json' }

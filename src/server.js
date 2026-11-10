@@ -12,21 +12,43 @@
 
 import express from 'express';
 import { existsSync } from 'fs';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
+import { timingSafeEqual } from 'crypto';
 import { loadSkeletonFromFile, computePose } from './rigby-adapter.js';
 import { generateDirecting } from './gemini-directing.js';
 import { renderFromDirecting, LIMITS } from './index.js';
 import { mockDirecting } from './timeline.js';
 import { cleanupJobDir } from './video-encoder.js';
 
+const __dirname = dirname(fileURLToPath(import.meta.url));
+
 const app = express();
 app.use(express.json({ limit: '2mb' }));
 
-/** احراز هویت اختیاری: اگر BEHIX_API_KEY تنظیم شده باشد، هدر x-api-key اجباری است (باگ #1) */
+/** صفحهٔ تست (فارسی) — بدون کلید باز است؛ خود رندرها کلید می‌خواهند */
+app.get('/', (_req, res) => {
+  res.sendFile(join(__dirname, 'public', 'index.html'));
+});
+
+function keyMatches(given, required) {
+  if (typeof given !== 'string') return false;
+  const a = Buffer.from(given);
+  const b = Buffer.from(required);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
+/**
+ * احراز هویت اختیاری: اگر BEHIX_API_KEY تنظیم شده باشد، هدر x-api-key اجباری است (باگ #1).
+ * استثناها: صفحهٔ تست، /health، و دانلود /renders/:jobId (شناسهٔ UUID خودش محرمانه است
+ * و تگ <video> نمی‌تواند هدر بفرستد).
+ */
 app.use((req, res, next) => {
   const required = process.env.BEHIX_API_KEY;
   if (!required) return next();
-  if (req.path === '/health') return next();
-  if (req.get('x-api-key') === required) return next();
+  if (req.path === '/' || req.path === '/health') return next();
+  if (req.method === 'GET' && req.path.startsWith('/renders/')) return next();
+  if (keyMatches(req.get('x-api-key'), required)) return next();
   res.status(401).json({ error: 'کلید API نامعتبر است (هدر x-api-key)' });
 });
 

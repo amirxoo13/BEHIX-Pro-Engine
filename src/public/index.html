@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BEHIX Pro Engine</title>
+<style>
+  :root{--bg:#0f1218;--card:#171c26;--line:#262e3d;--txt:#e8ecf3;--mut:#93a0b4;--acc:#4f9cf9;--ok:#2fbf71;--err:#ef5466}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);font-family:Tahoma,'Segoe UI',sans-serif;line-height:1.7}
+  .wrap{max-width:860px;margin:0 auto;padding:24px 16px 60px}
+  h1{font-size:22px;margin:0 0 4px}
+  .sub{color:var(--mut);font-size:13px;margin-bottom:20px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:16px}
+  .card h2{font-size:15px;margin:0 0 10px;color:var(--acc)}
+  label{display:block;font-size:12px;color:var(--mut);margin:8px 0 4px}
+  input,textarea,select{width:100%;background:#0c0f14;border:1px solid var(--line);border-radius:8px;color:var(--txt);padding:9px 11px;font:inherit;font-size:13px}
+  textarea{min-height:70px;resize:vertical}
+  .row{display:flex;gap:10px;flex-wrap:wrap}
+  .row>div{flex:1;min-width:110px}
+  button{background:var(--acc);border:0;border-radius:8px;color:#fff;padding:10px 18px;font:inherit;font-size:14px;cursor:pointer;margin-top:12px}
+  button:disabled{opacity:.5;cursor:wait}
+  button.ghost{background:transparent;border:1px solid var(--line);color:var(--mut)}
+  pre{background:#0c0f14;border:1px solid var(--line);border-radius:8px;padding:10px;font-size:12px;direction:ltr;text-align:left;overflow:auto;max-height:220px;white-space:pre-wrap;word-break:break-all}
+  video{width:100%;border-radius:10px;margin-top:10px;background:#000}
+  .status{font-size:13px;margin-top:10px}
+  .status.ok{color:var(--ok)} .status.err{color:var(--err)} .status.busy{color:var(--mut)}
+  .pill{display:inline-block;background:#0c0f14;border:1px solid var(--line);border-radius:99px;padding:2px 10px;font-size:11px;color:var(--mut);margin-inline-start:8px}
+  a{color:var(--acc)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🎬 BEHIX Pro Engine <span class="pill" id="healthPill">در حال بررسی…</span></h1>
+  <div class="sub">موتور انیمیشن ۲D — رندر CPU (بدون GPU) + کارگردانی هوشمند با Vertex AI Gemini</div>
+
+  <div class="card">
+    <h2>🔑 کلید دسترسی</h2>
+    <label>برای فراخوانی موتور لازم است (در مرورگر شما ذخیره می‌شود)</label>
+    <input id="apiKey" type="password" placeholder="x-api-key">
+  </div>
+
+  <div class="card">
+    <h2>۱) دموی سریع (بدون هوش مصنوعی)</h2>
+    <div class="sub">دو کاراکتر، دو صحنه با دوربین متفاوت، انیمیشن wave و فیزیک زنده — حدود ۱۰ ثانیه رندر</div>
+    <button id="btnDemo">رندر دمو</button>
+    <div class="status" id="stDemo"></div>
+    <video id="vidDemo" controls style="display:none"></video>
+  </div>
+
+  <div class="card">
+    <h2>۲) سناریو → کارگردانی هوشمند → ویدیو</h2>
+    <label>سناریو به فارسی</label>
+    <textarea id="scenario">یک پسر در پارک به دوستش دست تکان می‌دهد و بعد با هم حرف می‌زنند</textarea>
+    <div class="row">
+      <div><label>مدت (ثانیه، ≤۶۰)</label><input id="dur" type="number" value="6" min="1" max="60"></div>
+      <div><label>فریم‌ریت (≤۳۰)</label><input id="fps" type="number" value="10" min="1" max="30"></div>
+      <div><label>عرض</label><input id="w" type="number" value="640"></div>
+      <div><label>ارتفاع</label><input id="h" type="number" value="360"></div>
+    </div>
+    <button id="btnScen">تولید ویدیو</button>
+    <div class="status" id="stScen"></div>
+    <video id="vidScen" controls style="display:none"></video>
+    <details style="margin-top:10px"><summary style="cursor:pointer;color:var(--mut);font-size:12px">JSON کارگردانی تولیدشده توسط Gemini</summary><pre id="directingOut">—</pre></details>
+  </div>
+
+  <div class="card">
+    <h2>۳) پیش‌نمایش Pose (خروجی خام موتور)</h2>
+    <div class="row">
+      <div><label>انیمیشن</label><select id="anim"><option>idle</option><option>wave</option><option>promo</option></select></div>
+      <div><label>زمان (ثانیه)</label><input id="ptime" type="number" value="0.5" step="0.1"></div>
+    </div>
+    <button id="btnPose" class="ghost">محاسبهٔ Pose</button>
+    <pre id="poseOut">—</pre>
+  </div>
+
+  <div class="card">
+    <h2>ℹ️ وضعیت و سقف‌های موتور</h2>
+    <pre id="healthOut">—</pre>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const keyInput = $('apiKey');
+keyInput.value = localStorage.getItem('behixKey') || '';
+keyInput.addEventListener('input', () => localStorage.setItem('behixKey', keyInput.value));
+
+function headers() {
+  const h = { 'Content-Type': 'application/json' };
+  if (keyInput.value) h['x-api-key'] = keyInput.value;
+  return h;
+}
+async function api(path, body) {
+  const res = await fetch(path, body ? { method: 'POST', headers: headers(), body: JSON.stringify(body) } : { headers: headers() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || ('HTTP ' + res.status));
+  return data;
+}
+function setStatus(el, cls, msg) { el.className = 'status ' + cls; el.textContent = msg; }
+
+// health (بدون کلید باز است)
+fetch('/health').then(r => r.json()).then(d => {
+  $('healthPill').textContent = 'آنلاین ✓';
+  $('healthPill').style.color = 'var(--ok)';
+  $('healthOut').textContent = JSON.stringify(d, null, 2);
+}).catch(() => { $('healthPill').textContent = 'آفلاین'; $('healthPill').style.color = 'var(--err)'; });
+
+async function runRender(btn, st, vid, path, body, directingEl) {
+  btn.disabled = true;
+  setStatus(st, 'busy', '⏳ در حال رندر روی Cloud Run… (رندر CPU است، کمی صبر کنید)');
+  vid.style.display = 'none';
+  const t0 = Date.now();
+  try {
+    const d = await api(path, body);
+    const sec = ((Date.now() - t0) / 1000).toFixed(1);
+    setStatus(st, 'ok', `✅ ساخته شد در ${sec} ثانیه — ${d.frameCount} فریم، ${d.width}×${d.height}` + (d.gcsUri ? ' — در Cloud Storage هم ذخیره شد' : ''));
+    if (directingEl && d.directing) directingEl.textContent = JSON.stringify(d.directing, null, 2);
+    const vres = await fetch(d.downloadUrl, { headers: headers() });
+    if (!vres.ok) throw new Error('دانلود ویدیو ناموفق بود');
+    vid.src = URL.createObjectURL(await vres.blob());
+    vid.style.display = 'block';
+    vid.play().catch(()=>{});
+  } catch (e) {
+    setStatus(st, 'err', '❌ ' + e.message);
+  } finally { btn.disabled = false; }
+}
+
+$('btnDemo').onclick = () => runRender($('btnDemo'), $('stDemo'), $('vidDemo'), '/render-demo', {});
+$('btnScen').onclick = () => runRender($('btnScen'), $('stScen'), $('vidScen'), '/render-from-scenario', {
+  scenario: $('scenario').value,
+  options: { duration: +$('dur').value, fps: +$('fps').value, width: +$('w').value, height: +$('h').value }
+}, $('directingOut'));
+$('btnPose').onclick = async () => {
+  $('poseOut').textContent = '…';
+  try {
+    const d = await api('/preview-pose', { animationName: $('anim').value, time: +$('ptime').value });
+    $('poseOut').textContent = JSON.stringify(d, null, 2);
+  } catch (e) { $('poseOut').textContent = '❌ ' + e.message; }
+};
+</script>
+</body>
+</html>
