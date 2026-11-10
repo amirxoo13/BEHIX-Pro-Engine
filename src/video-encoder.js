@@ -72,8 +72,10 @@ export async function renderVideo(timeline, options = {}) {
   try {
     for (let i = 0; i < frameCount; i++) {
       const t = i / fps;
-      // دوربین صحنهٔ فعال از کارگردانی (باگ #6)؛ options در صورت وجود override می‌کند
+      // دوربین صحنهٔ فعال از کارگردانی (باگ #6)؛ options در صورت وجود override می‌کند.
+      // scale دوربین نسبت به ارتفاع مرجع ۵۴۰ نرمال می‌شود تا قاب در هر رزولوشنی یکسان بماند.
       const cam = timeline?.cameraAt ? timeline.cameraAt(t) : {};
+      const resScale = height / 540;
       const characters = timeline.charactersAt
         ? timeline.charactersAt(t, dt)
         : [{ pose: timeline.poseAt(t, 'main', dt), offsetX: 0 }];
@@ -83,7 +85,7 @@ export async function renderVideo(timeline, options = {}) {
         skeleton,
         worldX: worldX ?? cam.worldX,
         worldY: worldY ?? cam.worldY,
-        scale: scale ?? cam.scale
+        scale: scale ?? (cam.scale != null ? cam.scale * resScale : undefined)
       });
       savePpm(frame, join(jobDir, `frame_${String(i).padStart(4, '0')}.ppm`));
     }

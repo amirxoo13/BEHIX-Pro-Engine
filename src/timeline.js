@@ -107,7 +107,13 @@ export class Timeline {
       };
     }
     const preset = CAMERA_PRESETS[String(cam || '').toLowerCase()];
-    return preset ? { ...preset } : { ...DEFAULT_CAMERA };
+    const result = preset ? { ...preset } : { ...DEFAULT_CAMERA };
+    // نمای close با چند کاراکتر کنار هم، سرها را از قاب بیرون می‌اندازد؛ کمی باز می‌کنیم
+    if (result.scale > 0.3 && this.characterIds().length > 1) {
+      result.scale = 0.3;
+      result.worldY = 1450;
+    }
+    return result;
   }
 
   /** انیمیشن مورد نظر برای یک کاراکتر در زمان داده شده */
