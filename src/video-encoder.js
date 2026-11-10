@@ -6,7 +6,7 @@
 import { spawn } from 'child_process';
 import { mkdirSync, writeFileSync, unlinkSync } from 'fs';
 import { join, resolve, dirname } from 'path';
-import { renderPose, savePpm } from './software-renderer.js';
+import { renderCharacters, savePpm } from './software-renderer.js';
 
 /**
  * یک ویدیوی کوتاه از روی Timeline می‌سازد.
@@ -16,11 +16,10 @@ import { renderPose, savePpm } from './software-renderer.js';
  */
 export async function renderVideo(timeline, options = {}) {
   const outDir = resolve(options.outDir || 'out');
-  const fps = options.fps || 8;
+  const fps = options.fps || 12;
   const duration = options.duration || timeline.duration || 4;
-  const width = options.width || 320;
-  const height = options.height || 180;
-  const characterId = options.characterId || 'boy';
+  const width = options.width || 1280;
+  const height = options.height || 720;
   const outputPath = resolve(options.outputPath || join(outDir, 'film.mp4'));
 
   mkdirSync(outDir, { recursive: true });
@@ -30,8 +29,8 @@ export async function renderVideo(timeline, options = {}) {
 
   for (let i = 0; i < frameCount; i++) {
     const t = i / fps;
-    const pose = timeline.poseAt(t, characterId);
-    const frame = renderPose(pose, { width, height });
+    const characters = timeline.charactersAt ? timeline.charactersAt(t) : [{ pose: timeline.poseAt(t), offsetX: 0 }];
+    const frame = renderCharacters(characters, { width, height, scale: options.scale ?? 0.32 });
     const ppmPath = join(outDir, `frame_${String(i).padStart(4, '0')}.ppm`);
     savePpm(frame, ppmPath);
     frames.push(ppmPath);

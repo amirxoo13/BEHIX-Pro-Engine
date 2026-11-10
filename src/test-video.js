@@ -15,10 +15,10 @@ async function main() {
   const tl = new Timeline(directing, skeleton);
 
   const output = await renderVideo(tl, {
-    duration: 4,
-    fps: 6,
-    width: 320,
-    height: 180,
+    duration: 3,
+    fps: 8,
+    width: 640,
+    height: 360,
     outputPath: 'out/test_film.mp4'
   });
 

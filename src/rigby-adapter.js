@@ -41,6 +41,7 @@ export function computePose(skeleton, animationName = null, time = 0.1) {
     animationNames: (skeleton.animations || []).map(a => a.name),
     animationFound: animationName ? skeleton.animations?.some(a => a.name === animationName) : null,
     quadCount: quads.length,
+    quads,
     ready: true
   };
 }

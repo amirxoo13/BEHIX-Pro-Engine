@@ -59,8 +59,31 @@ export class Timeline {
   /** محاسبه pose برای زمان داده شده */
   poseAt(timeSec, characterId = 'main') {
     const anim = this.animationFor(characterId, timeSec);
-    const localTime = timeSec % 2; // حلقهٔ ساده
+    const localTime = timeSec % 2;
     return computePose(this.skeleton, anim, localTime);
+  }
+
+  /**
+   * همهٔ کاراکترهای فعال در زمان داده شده با offset افقی
+   * @returns {Array<{id, pose, offsetX, offsetY}>}
+   */
+  charactersAt(timeSec) {
+    const scene = this.sceneAt(timeSec);
+    const chars = scene?.characters || this.directing.characters || [];
+    const n = Math.max(1, chars.length);
+    const spacing = 420;
+    const startX = -((n - 1) * spacing) / 2;
+
+    return chars.map((c, i) => {
+      const id = c.id || `char${i}`;
+      const pose = this.poseAt(timeSec, id);
+      return {
+        id,
+        pose,
+        offsetX: startX + i * spacing,
+        offsetY: 0
+      };
+    });
   }
 
   /** خلاصهٔ Timeline برای دیباگ */
