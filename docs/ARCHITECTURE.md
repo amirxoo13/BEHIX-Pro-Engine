@@ -22,15 +22,19 @@
    - FFmpeg (CPU) → MP4
    - ذخیره در Cloud Storage
 
-## جریان
+## جریان پیاده‌سازی‌شدهٔ فعلی
 
-سناریو → Gemini (کارگردانی + مشخصات) → Imagen (لایه‌ها) → AutoRig → asset ریگبی  
-→ Timeline → pose → رندر CPU → FFmpeg → ویدیو
+سناریو → Gemini/Vertex (کارگردانی JSON اعتبارسنجی‌شده) → Timeline (Pose پایدار + فیزیک پیوسته، دوربین صحنه)
+→ drawSkeletonGeometry (ترتیب رسم، clipping، UV اطلس، tint، blend) → رستر CPU → FFmpeg (image2) → MP4
+→ (اختیاری) آپلود Cloud Storage با OUTPUT_BUCKET
+
+## جریان هدف آینده (هنوز متصل نیست)
+
+سناریو → Gemini (مشخصات کاراکتر) → Imagen (لایه‌ها) → AutoRig → asset ریگبی → همان مسیر بالا
 
 ## محدودیت‌ها و کارهای باقی‌مانده
 
-- پیاده‌سازی rasterizer نرم‌افزاری باکیفیت
-- اتصال کامل برنامهٔ کارگردانی Gemini
-- پایپ‌لاین طراحی کاراکتر از روی متن/عکس سر
-- مدیریت jobهای طولانی روی Cloud Run
-- لب‌خوانی پیشرفته روی mesh ریگبی
+- پایپ‌لاین طراحی کاراکتر از روی متن/عکس سر (Imagen → AutoRig)
+- صف Cloud Tasks / Cloud Run Jobs برای jobهای طولانی‌تر از timeout سرویس
+- لب‌خوانی: پیاده‌سازی viseme در engine/rigby-core/lipsync.js موجود است ولی هنوز به پایپ‌لاین متصل نشده
+- دارایی کاراکتر دوم: فعلاً همهٔ کاراکترها نمونه‌های مستقل (Pose/State/فیزیک جدا) از همان اسکلت nila هستند

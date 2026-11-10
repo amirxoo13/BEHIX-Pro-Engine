@@ -8,14 +8,15 @@
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
     "demo": "node src/cli.js --demo",
-    "cli": "node src/cli.js"
+    "cli": "node src/cli.js",
+    "test": "node src/test-priorities.js && node src/test-timeline.js && node src/test-renderer.js && node src/test-video.js"
   },
   "engines": {
     "node": ">=20"
   },
   "dependencies": {
+    "@google-cloud/storage": "^7.14.0",
     "@google-cloud/vertexai": "^1.9.0",
     "express": "^4.21.0"
-  },
-  "devDependencies": {}
+  }
 }

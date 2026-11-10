@@ -3,9 +3,10 @@
  * اجرا: node src/test-video.js
  */
 
+import { statSync } from 'fs';
 import { loadSkeletonFromFile } from './rigby-adapter.js';
 import { Timeline, mockDirecting } from './timeline.js';
-import { renderVideo } from './video-encoder.js';
+import { renderVideo, cleanupJobDir } from './video-encoder.js';
 
 async function main() {
   console.log('=== اولویت ۵: کدگذاری ویدیو با FFmpeg ===');
@@ -14,15 +15,18 @@ async function main() {
   const directing = mockDirecting();
   const tl = new Timeline(directing, skeleton);
 
-  const output = await renderVideo(tl, {
+  const result = await renderVideo(tl, {
     duration: 3,
     fps: 8,
     width: 640,
-    height: 360,
-    outputPath: 'out/test_film.mp4'
+    height: 360
   });
 
-  console.log('ویدیو ساخته شد:', output);
+  const size = statSync(result.outputPath).size;
+  console.log('ویدیو ساخته شد:', result.outputPath, `(${size} بایت، ${result.frameCount} فریم)`);
+  if (size < 1000) throw new Error('فایل MP4 مشکوک به خالی بودن است');
+
+  cleanupJobDir(result.jobDir);
   console.log('=== پایان تست اولویت ۵ ===');
 }
 

@@ -5,7 +5,7 @@
 
 import { loadSkeletonFromFile } from './rigby-adapter.js';
 import { Timeline, mockDirecting } from './timeline.js';
-import { renderPose, savePpm } from './software-renderer.js';
+import { renderCharacters, savePpm } from './software-renderer.js';
 import { mkdirSync } from 'fs';
 
 function main() {
@@ -16,13 +16,16 @@ function main() {
 
   mkdirSync('out', { recursive: true });
 
+  const fps = 8;
   const times = [0, 2, 4, 6];
   for (const t of times) {
-    const pose = tl.poseAt(t, 'boy');
-    const frame = renderPose(pose, { width: 320, height: 180 });
+    const cam = tl.cameraAt(t);
+    const characters = tl.charactersAt(t, 1 / fps);
+    const frame = renderCharacters(characters, { width: 320, height: 180, skeleton, ...cam });
     const path = `out/frame_${t.toFixed(1)}.ppm`;
     savePpm(frame, path);
-    console.log(`ذخیره شد: ${path} (quads=${pose.quadCount})`);
+    console.log(`ذخیره شد: ${path} (drawn=${frame.meta.drawn})`);
+    if (!frame.meta.drawn) throw new Error('هیچ چیزی رسم نشد');
   }
 
   console.log('=== پایان تست اولویت ۴ ===');
