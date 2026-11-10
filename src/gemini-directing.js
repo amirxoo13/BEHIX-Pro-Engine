@@ -99,7 +99,9 @@ async function callVertexAi(prompt) {
   const result = await model.generateContent({
     contents: [{ role: 'user', parts: [{ text: prompt }] }]
   });
-  const text = result?.response?.candidates?.[0]?.content?.parts?.[0]?.text;
+  // gemini-3 ممکن است پاسخ را در چند part بدهد؛ همه را به هم می‌چسبانیم
+  const parts = result?.response?.candidates?.[0]?.content?.parts || [];
+  const text = parts.map(p => p.text || '').join('');
   if (!text) throw new Error('پاسخ خالی از Vertex AI');
   return text;
 }
@@ -129,7 +131,8 @@ async function callGeminiApi(prompt, apiKey) {
   }
 
   const data = await res.json();
-  const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+  const parts = data.candidates?.[0]?.content?.parts || [];
+  const text = parts.map(p => p.text || '').join('');
   if (!text) throw new Error('پاسخ خالی از Gemini');
   return text;
 }
