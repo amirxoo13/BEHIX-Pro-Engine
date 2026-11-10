@@ -1,0 +1,19 @@
+{
+  "name": "behix-pro-engine",
+  "version": "0.1.0",
+  "description": "Professional 2D animation engine with Rigby2D runtime + Vertex AI / Gemini directing. CPU rendering path (no Canvas, no GPU).",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@google-cloud/vertexai": "^1.9.0",
+    "express": "^4.21.0"
+  },
+  "devDependencies": {}
+}
