@@ -1,0 +1,6 @@
+interface:
+  display_name: "Design and Build Vox-Style Motion Graphics (2D / 3D)"
+  short_description: "Design, animate and finish Vox, Johnny Harris and WSJ style explainer videos in 2D, 2.5D and 3D with a free toolset (Blender, DaVinci Resolve Fusion, Remotion + Three.js, FFmpeg)."
+  default_prompt: "Use the 2d-generalist skill to design and build a Vox-style (2D/3D) motion graphics scene with an asymmetric layout, a Blueprint paper background, a two-layer torn paper border, halftone, a true-scale timeline ruler and a dual highlighter."
+policy:
+  allow_implicit_invocation: true

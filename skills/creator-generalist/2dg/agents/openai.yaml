@@ -1,0 +1,5 @@
+interface:
+  display_name: "/2dg — 2D Generalist Command"
+  short_description: "Launch 2d-generalist with a mode (map, chart-timeline, archival-collage, design, audit)"
+  default_prompt: "Use $2dg "
+  allow_implicit_invocation: false
