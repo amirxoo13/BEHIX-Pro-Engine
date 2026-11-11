@@ -9,7 +9,7 @@
     "dev": "node --watch src/server.js",
     "demo": "node src/cli.js --demo",
     "cli": "node src/cli.js",
-    "test": "node src/test-layer-prep.js && node src/test-character-budget.js && node src/test-priorities.js && node src/test-timeline.js && node src/test-renderer.js && node src/test-video.js"
+    "test": "node src/test-layer-prep.js && node src/test-character-budget.js && node src/test-server-options.js && node src/test-priorities.js && node src/test-timeline.js && node src/test-renderer.js && node src/test-video.js"
   },
   "engines": {
     "node": ">=20"

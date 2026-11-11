@@ -72,9 +72,17 @@ async function registerJob(result) {
   });
 }
 
-/** فقط فیلدهای مجاز از بدنهٔ کلاینت عبور می‌کنند (outputPath از کلاینت هرگز پذیرفته نمی‌شود) */
-function pickRenderOptions(body = {}) {
-  const { duration, fps, width, height, skeletonPath, chunkDurationSec, buildAssets } = body;
+/**
+ * فقط فیلدهای مجاز از بدنهٔ کلاینت عبور می‌کنند (outputPath از کلاینت هرگز پذیرفته نمی‌شود).
+ *
+ * هر دو شکل پذیرفته می‌شود: هم `{ duration: 6 }` و هم `{ options: { duration: 6 } }`.
+ * قبلاً `/render` فقط سطح اول را می‌خواند و `/render-from-scenario` فقط `options` را، پس اگر کلاینت
+ * گزینه‌ها را جای دیگری می‌فرستاد بی‌هیچ خطایی نادیده گرفته می‌شد و ویدیو با تنظیمات پیش‌فرض
+ * (ابعاد و فریم‌ریت دیگر، و بدون ساخت دارایی) رندر می‌شد — خرابیِ خاموشی که پیدا کردنش سخت است.
+ */
+export function pickRenderOptions(body = {}) {
+  const merged = { ...body, ...(body.options && typeof body.options === 'object' ? body.options : {}) };
+  const { duration, fps, width, height, skeletonPath, chunkDurationSec, buildAssets } = merged;
   return { duration, fps, width, height, skeletonPath, chunkDurationSec, buildAssets };
 }
 
@@ -115,7 +123,12 @@ app.post('/render', async (req, res) => {
 
     const opts = pickRenderOptions(req.body);
     const requestedDur = Number(opts.duration || directing.durationSec || 0);
-    const isLongform = requestedDur > LIMITS.maxDuration || Boolean(req.body?.asyncJob);
+    // ساخت دارایی‌ها حتی برای یک ویدیوی چندثانیه‌ای ده‌ها فراخوانی مدل تصویر دارد و با
+    // عقب‌نشینیِ سهمیه (۴۲۹) راحت از سقف تایم‌اوت درخواست Cloud Run رد می‌شود و اتصال وسط کار
+    // قطع می‌شود. پس هر رندری که دارایی می‌سازد، صرف‌نظر از مدتش، به Job پس‌زمینه می‌رود.
+    const isLongform = requestedDur > LIMITS.maxDuration
+      || Boolean(req.body?.asyncJob)
+      || Boolean(opts.buildAssets);
 
     validateDirecting(directing, {
       longform: requestedDur >= LONGFORM_MIN_SEC,
@@ -151,8 +164,8 @@ app.post('/render', async (req, res) => {
  *  - برای فیلم بلند (۱۸۰ تا ۳۰۰ ثانیه، که حالت پیش‌فرض محصول است یا زمانی که duration > 60 باشد):
  *    فقط کارگردانی را با prepareScenarioDirecting آماده و اعتبارسنجی می‌کند، Job تکهتکه را در پس‌زمینه/Cloud Run Job ثبت می‌کند
  *    و فوراً `{ jobId, status: 'queued', statusUrl, downloadUrl: null, directing }` برمی‌گرداند (داخل همان درخواست HTTP تا آخر رندر نمی‌کند).
- *  - برای کلیپ کوتاه (مثلاً وقتی کاربر در پنل تست duration <= 60 داده و asyncJob نخواسته):
- *    کلیپ کوتاه را رندر کرده و برمی‌گرداند.
+ *    این مسیر همیشه Job برمی‌گرداند (حتی برای کلیپ کوتاه)، چون هر سناریوی تازه کاراکتر تازه می‌سازد
+ *    و ساخت دارایی‌ها از سقف تایم‌اوت درخواست Cloud Run رد می‌شود.
  */
 app.post('/render-from-scenario', async (req, res) => {
   try {
@@ -168,31 +181,28 @@ app.post('/render-from-scenario', async (req, res) => {
       ? (Number.isFinite(explicitDur) && explicitDur >= LONGFORM_MIN_SEC ? explicitDur : LONGFORM_MIN_SEC)
       : explicitDur;
 
+    // یک سناریوی تازه همیشه کاراکتر تازه دارد، یعنی ده‌ها فراخوانی مدل تصویر. ساختن آن‌ها داخل
+    // خودِ درخواست HTTP از سقف تایم‌اوت Cloud Run رد می‌شود و کلاینت وسط کار قطع می‌شود
+    // (بدون هیچ پیام خطایی). پس دارایی‌ها همیشه داخل Job پس‌زمینه ساخته می‌شوند، نه اینجا.
     const { directing } = await prepareScenarioDirecting(String(scenario), {
       durationSec: targetDuration,
       longform: isLongform,
-      buildAssets: !isLongform && !req.body?.asyncJob
+      buildAssets: false
     });
 
-    if (isLongform || req.body?.asyncJob) {
-      const queued = await enqueueLongformRenderJob(directing, {
-        ...rawOpts,
-        duration: directing.durationSec,
-        longform: isLongform
-      });
-      return res.status(202).json({
-        jobId: queued.jobId,
-        status: queued.status,
-        statusUrl: `/jobs/${queued.jobId}`,
-        downloadUrl: queued.downloadUrl || null,
-        directing
-      });
-    }
-
-    const result = await renderFromDirecting(directing, rawOpts);
-    await registerJob(result);
-    const { outputPath, jobDir, ...publicResult } = result;
-    res.json({ ...publicResult, downloadUrl: `/renders/${result.jobId}`, directing });
+    const queued = await enqueueLongformRenderJob(directing, {
+      ...rawOpts,
+      duration: directing.durationSec,
+      longform: isLongform,
+      buildAssets: true
+    });
+    return res.status(202).json({
+      jobId: queued.jobId,
+      status: queued.status,
+      statusUrl: `/jobs/${queued.jobId}`,
+      downloadUrl: queued.downloadUrl || null,
+      directing
+    });
   } catch (err) {
     const isClientErr = /معتبر نیست|سقف|نامعتبر|خالی|تکراری|مطلق/.test(String(err?.message || ''));
     sendError(res, err, isClientErr ? 400 : 500);
