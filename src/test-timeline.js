@@ -66,6 +66,30 @@ async function main() {
   }
   console.log('sceneAt برای سوراخ‌ها درست است (باگ #12).');
 
+  // جابه‌جایی کاراکتر در طول صحنه: بدون این، اکشن "run" فقط درجا دویدن بود
+  const moveDirecting = {
+    title: 'دویدن در زمین',
+    durationSec: 10,
+    characters: [{ id: 'runner' }],
+    scenes: [{
+      id: 'm1', startSec: 0, endSec: 10, camera: 'wide',
+      characters: [{ id: 'runner', action: 'run', fromX: -1600, toX: 1600 }]
+    }]
+  };
+  const tlMove = new Timeline(moveDirecting, skeleton);
+  const xAt = t => tlMove.charactersAt(t, 1 / 12)[0].offsetX;
+  const x0 = xAt(0), x5 = xAt(5), x10 = xAt(10);
+  if (Math.abs(x0 - (-1600)) > 1) throw new Error(`offsetX در ابتدا باید -1600 باشد، اما ${x0} شد`);
+  if (Math.abs(x5 - 0) > 1) throw new Error(`offsetX در وسط باید ۰ باشد، اما ${x5} شد`);
+  if (Math.abs(x10 - 1600) > 1) throw new Error(`offsetX در انتها باید 1600 باشد، اما ${x10} شد`);
+  if (!(x0 < x5 && x5 < x10)) throw new Error('جابه‌جایی کاراکتر یکنواخت نیست');
+
+  // کاراکتری که fromX/toX ندارد باید همان جایگاه ثابت قبلی را بگیرد (رفتار قبلی نشکند)
+  const tlStatic = new Timeline(gapDirecting, skeleton);
+  const sx = tlStatic.charactersAt(2, 1 / 12)[0].offsetX;
+  if (sx !== 0) throw new Error(`کاراکتر بدون fromX باید در جایگاه ثابت ۰ بماند، اما ${sx} شد`);
+  console.log('جابه‌جایی کاراکتر در طول صحنه کار می‌کند و رفتار پیش‌فرض نشکسته است.');
+
   // بررسی ۲۰ کاراکتر هم‌زمان داخل قاب wide، کاراکتر بدون دیالوگ بدون دهان (موفق)، و لب‌خوانی تک‌مسیره بدون تغییر مدت انیمیشن
   const skelWithoutMouth = skeleton.clone();
   const mouthIdx = skelWithoutMouth.slots.findIndex(s => s.name === 'mouth');

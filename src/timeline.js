@@ -391,14 +391,48 @@ export class Timeline {
     const spacing = n <= 3 ? 900 : Math.max(90, Math.round(1800 / (n - 1)));
     const startX = -((n - 1) * spacing) / 2;
 
-    return ids.map((id, i) => ({
-      id,
-      pose: this.poseAt(timeSec, id, dt),
-      skeleton: this.skeletonFor(id),
-      atlasPath: this.atlasFor(id),
-      offsetX: startX + i * spacing,
-      offsetY: 0
-    }));
+    const scene = this.sceneAt(timeSec);
+    // پیشرفت خطی داخل صحنه، برای درون‌یابی جابه‌جایی کاراکتر
+    const sStart = Number(scene?.startSec);
+    const sEnd = Number(scene?.endSec);
+    const span = Number.isFinite(sStart) && Number.isFinite(sEnd) && sEnd > sStart ? sEnd - sStart : 0;
+    const progress = span > 0 ? Math.min(1, Math.max(0, (timeSec - sStart) / span)) : 0;
+
+    return ids.map((id, i) => {
+      // جای پیش‌فرض: جایگاه ثابت بر اساس شمارهٔ کاراکتر.
+      // اگر صحنه برای این کاراکتر fromX/toX داده باشد، بین آن دو درون‌یابی می‌شود تا کاراکتر
+      // واقعاً در قاب حرکت کند — بدون این، اکشن "run" فقط درجا دویدن بود.
+      let offsetX = startX + i * spacing;
+      let offsetY = 0;
+
+      const entry = (scene?.characters || []).find(c => c?.id === id);
+      const fromX = Number(entry?.fromX);
+      const toX = Number(entry?.toX);
+      if (Number.isFinite(fromX) && Number.isFinite(toX)) {
+        offsetX = fromX + (toX - fromX) * progress;
+      } else if (Number.isFinite(fromX)) {
+        offsetX = fromX;
+      } else if (Number.isFinite(Number(entry?.x))) {
+        offsetX = Number(entry.x);
+      }
+
+      const fromY = Number(entry?.fromY);
+      const toY = Number(entry?.toY);
+      if (Number.isFinite(fromY) && Number.isFinite(toY)) {
+        offsetY = fromY + (toY - fromY) * progress;
+      } else if (Number.isFinite(Number(entry?.y))) {
+        offsetY = Number(entry.y);
+      }
+
+      return {
+        id,
+        pose: this.poseAt(timeSec, id, dt),
+        skeleton: this.skeletonFor(id),
+        atlasPath: this.atlasFor(id),
+        offsetX,
+        offsetY
+      };
+    });
   }
 
   /** خلاصهٔ Timeline برای دیباگ و گزارش */
