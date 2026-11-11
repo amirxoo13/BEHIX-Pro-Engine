@@ -53,7 +53,7 @@
     <label>سناریو به فارسی</label>
     <textarea id="scenario">یک پسر در پارک به دوستش دست تکان می‌دهد و بعد با هم حرف می‌زنند</textarea>
     <div class="row">
-      <div><label>مدت (ثانیه، ≤۶۰)</label><input id="dur" type="number" value="6" min="1" max="60"></div>
+      <div><label>مدت: ≤۶۰ فوری؛ بیشتر → کار پس‌زمینه (تا ۳۰۰)</label><input id="dur" type="number" value="6" min="1" max="300"></div>
       <div><label>فریم‌ریت (≤۳۰)</label><input id="fps" type="number" value="10" min="1" max="30"></div>
       <div><label>عرض</label><input id="w" type="number" value="640"></div>
       <div><label>ارتفاع</label><input id="h" type="number" value="360"></div>
@@ -106,18 +106,45 @@ fetch('/health').then(r => r.json()).then(d => {
   $('healthOut').textContent = JSON.stringify(d, null, 2);
 }).catch(() => { $('healthPill').textContent = 'آفلاین'; $('healthPill').style.color = 'var(--err)'; });
 
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+/** کار صف‌شده (فیلم بلند) را تا پایان دنبال می‌کند و وضعیت/درصد را نشان می‌دهد */
+async function waitForJob(d, st) {
+  const phaseFa = { queued:'در صف', preparing:'آماده‌سازی', assets:'ساخت دارایی‌ها', directing:'کارگردانی', audio:'تولید صدا', rendering:'رندر فریم‌ها', encoding:'کدگذاری ویدیو', uploading:'آپلود', merging:'چسباندن تکه‌ها', error:'خطا' };
+  for (let i = 0; i < 360; i++) { // تا ۳۰ دقیقه
+    await sleep(5000);
+    let j;
+    try { j = await api(d.statusUrl || ('/jobs/' + d.jobId)); } catch { continue; }
+    if (j.status === 'failed') throw new Error(j.error || 'رندر کار با خطا متوقف شد');
+    if (j.status === 'completed') return j;
+    const pct = Number.isFinite(j.progress) ? ` — ${Math.round(j.progress * 100)}٪` : '';
+    setStatus(st, 'busy', `⏳ کار پس‌زمینه: ${phaseFa[j.phase] || j.phase || j.status}${pct} (فیلم بلند روی Cloud Run Job رندر می‌شود؛ صفحه را باز نگه دار)`);
+  }
+  throw new Error('کار بیش از حد طول کشید؛ بعداً با شناسهٔ ' + d.jobId + ' وضعیت را چک کن');
+}
+
 async function runRender(btn, st, vid, path, body, directingEl) {
   btn.disabled = true;
   setStatus(st, 'busy', '⏳ در حال رندر روی Cloud Run… (رندر CPU است، کمی صبر کنید)');
   vid.style.display = 'none';
   const t0 = Date.now();
   try {
-    const d = await api(path, body);
-    const sec = ((Date.now() - t0) / 1000).toFixed(1);
-    setStatus(st, 'ok', `✅ ساخته شد در ${sec} ثانیه — ${d.frameCount} فریم، ${d.width}×${d.height}` + (d.gcsUri ? ' — در Cloud Storage هم ذخیره شد' : ''));
+    let d = await api(path, body);
     if (directingEl && d.directing) directingEl.textContent = JSON.stringify(d.directing, null, 2);
-    const vres = await fetch(d.downloadUrl, { headers: headers() });
-    if (!vres.ok) throw new Error('دانلود ویدیو ناموفق بود');
+
+    // فیلم بلند: پاسخ queued است؛ تا پایان Job صبر و وضعیت را نشان می‌دهیم
+    if (d.status && d.status !== 'completed' && !d.frameCount) {
+      const done = await waitForJob(d, st);
+      d = { ...d, ...done, downloadUrl: done.downloadUrl || ('/renders/' + d.jobId) };
+    }
+
+    const sec = ((Date.now() - t0) / 1000).toFixed(1);
+    setStatus(st, 'ok', `✅ ساخته شد در ${sec} ثانیه` + (d.frameCount ? ` — ${d.frameCount} فریم` : '') + (d.width ? `، ${d.width}×${d.height}` : '') + (d.gcsUri ? ' — در Cloud Storage هم ذخیره شد' : ''));
+    const vres = await fetch(d.downloadUrl || ('/renders/' + d.jobId), { headers: headers() });
+    if (!vres.ok) {
+      const err = await vres.json().catch(() => ({}));
+      throw new Error(err.error || 'دانلود ویدیو ناموفق بود (کد ' + vres.status + ')');
+    }
     vid.src = URL.createObjectURL(await vres.blob());
     vid.style.display = 'block';
     vid.play().catch(()=>{});
