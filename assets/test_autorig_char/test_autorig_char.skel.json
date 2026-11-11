@@ -7353,171 +7353,99 @@
     },
     "run": {
       "bones": {
-        "thigh_l": {
-          "rotate": [
-            {
-              "value": 32
-            },
-            {
-              "time": 0.3,
-              "value": -26
-            },
-            {
-              "time": 0.6,
-              "value": 32
-            }
-          ]
-        },
-        "thigh_r": {
-          "rotate": [
-            {
-              "value": -26
-            },
-            {
-              "time": 0.3,
-              "value": 32
-            },
-            {
-              "time": 0.6,
-              "value": -26
-            }
-          ]
-        },
-        "shin_l": {
-          "rotate": [
+        "ik_foot_l": {
+          "translate": [
             {
               "time": 0,
-              "value": -18
+              "x": 230,
+              "y": 0
             },
             {
               "time": 0.15,
-              "value": -62
+              "x": 0,
+              "y": 0
             },
             {
               "time": 0.3,
-              "value": -8
+              "x": -230,
+              "y": 0
             },
             {
-              "time": 0.44999999999999996,
-              "value": -30
+              "time": 0.45,
+              "x": 0,
+              "y": 200
             },
             {
               "time": 0.6,
-              "value": -18
+              "x": 230,
+              "y": 0
             }
           ]
         },
-        "shin_r": {
-          "rotate": [
+        "ik_foot_r": {
+          "translate": [
             {
               "time": 0,
-              "value": -8
+              "x": -230,
+              "y": 0
             },
             {
               "time": 0.15,
-              "value": -30
+              "x": 0,
+              "y": 200
             },
             {
               "time": 0.3,
-              "value": -18
+              "x": 230,
+              "y": 0
             },
             {
-              "time": 0.44999999999999996,
-              "value": -62
+              "time": 0.45,
+              "x": 0,
+              "y": 0
             },
             {
               "time": 0.6,
-              "value": -8
+              "x": -230,
+              "y": 0
             }
           ]
         },
-        "foot_l": {
-          "rotate": [
+        "ik_hand_l": {
+          "translate": [
             {
-              "value": 10
+              "time": 0,
+              "x": -170,
+              "y": 0
             },
             {
               "time": 0.3,
-              "value": -6
+              "x": 170,
+              "y": 40
             },
             {
               "time": 0.6,
-              "value": 10
+              "x": -170,
+              "y": 0
             }
           ]
         },
-        "foot_r": {
-          "rotate": [
+        "ik_hand_r": {
+          "translate": [
             {
-              "value": -6
+              "time": 0,
+              "x": 170,
+              "y": 40
             },
             {
               "time": 0.3,
-              "value": 10
+              "x": -170,
+              "y": 0
             },
             {
               "time": 0.6,
-              "value": -6
-            }
-          ]
-        },
-        "upperarm_l": {
-          "rotate": [
-            {
-              "value": -28
-            },
-            {
-              "time": 0.3,
-              "value": 24
-            },
-            {
-              "time": 0.6,
-              "value": -28
-            }
-          ]
-        },
-        "upperarm_r": {
-          "rotate": [
-            {
-              "value": 24
-            },
-            {
-              "time": 0.3,
-              "value": -28
-            },
-            {
-              "time": 0.6,
-              "value": 24
-            }
-          ]
-        },
-        "forearm_l": {
-          "rotate": [
-            {
-              "value": -58
-            },
-            {
-              "time": 0.3,
-              "value": -72
-            },
-            {
-              "time": 0.6,
-              "value": -58
-            }
-          ]
-        },
-        "forearm_r": {
-          "rotate": [
-            {
-              "value": -72
-            },
-            {
-              "time": 0.3,
-              "value": -58
-            },
-            {
-              "time": 0.6,
-              "value": -72
+              "x": 170,
+              "y": 40
             }
           ]
         },

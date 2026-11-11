@@ -336,6 +336,21 @@ export function deriveWorldLayout(sliced, targetHeight = TARGET_FIGURE_HEIGHT) {
     };
   }
 
+  // دهان و اجزای صورت از روی کادر واقعی سر جا می‌گیرند، نه از جدول ثابت.
+  // دهان لایهٔ جداست (برای لب‌خوانی) ولی در تصویر بدن بریده نمی‌شود، پس اگر از جدول ثابت
+  // بیاید روی چانه یا گردن می‌افتد — چون سر هر کاراکتر اندازه و جای خودش را دارد.
+  // نسبت‌ها آناتومیک‌اند: دهان حدود ۷۸٪ فاصله از بالای سر قرار می‌گیرد.
+  const head = layout.head;
+  if (head) {
+    const headTop = head.y + head.h / 2;
+    layout.mouth = {
+      x: head.x,
+      y: Math.round(headTop - head.h * 0.78),
+      w: Math.max(1, Math.round(head.w * 0.42)),
+      h: Math.max(1, Math.round(head.h * 0.14))
+    };
+  }
+
   // زنجیرهٔ دست از شانه به پایین
   const shoulderY = (body.height - (m.armTop + m.armBottom) / 2) * S;
   for (const side of ['l', 'r']) {

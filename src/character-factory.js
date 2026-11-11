@@ -148,6 +148,7 @@ export function defaultCharacterLayers(charId) {
 export const CORE_BODY_LAYERS = Object.freeze([
   { name: 'pelvis', role: 'pelvis', side: null },
   { name: 'torso', role: 'torso', side: null },
+  { name: 'neck', role: 'neck', side: null },
   { name: 'head', role: 'head', side: null },
   { name: 'mouth', role: 'mouth', side: null },
   { name: 'upperarm_l', role: 'upperarm', side: 'l' },
@@ -763,41 +764,41 @@ function buildRunAnimation(cycleSec = 0.6) {
   const half = T / 2;
   const q = T / 4;
 
-  /** یک تایم‌لاین چرخش دو کلیدی متقارن با فاز دلخواه */
-  const swing = (atZero, atHalf) => ({
-    rotate: [
-      { value: atZero },
-      { time: half, value: atHalf },
-      { time: T, value: atZero }
-    ]
-  });
+  // دامنهٔ حرکت بر حسب واحد جهانی، متناسب با قامت ۲۶۳۰ واحدی
+  const STRIDE = 230;   // جلو و عقب رفتن پا
+  const LIFT = 200;     // بلند شدن پا در فاز هوا
+  const ARM_SWING = 170;
+  const HIP_BOB = 34;
 
-  /** زانو: در نیمهٔ هوا جمع و در تماس با زمین باز می‌شود */
-  const knee = (phase) => ({
-    rotate: [
-      { time: 0, value: phase === 0 ? -18 : -8 },
-      { time: q, value: phase === 0 ? -62 : -30 },
-      { time: half, value: phase === 0 ? -8 : -18 },
-      { time: half + q, value: phase === 0 ? -30 : -62 },
-      { time: T, value: phase === 0 ? -18 : -8 }
-    ]
+  /**
+   * مسیر بیضی‌وارِ پا: تماس جلو -> زیر بدن -> هل دادن عقب -> بلند شدن و برگشت از هوا.
+   * phase=0 پای جلودار، phase=1 پای عقب‌دار (نیم چرخه اختلاف).
+   */
+  const footPath = (phase) => {
+    const k = (time, x, y) => ({ time: Number(time.toFixed(4)), x, y });
+    const fwd = phase === 0
+      ? [k(0, STRIDE, 0), k(q, 0, 0), k(half, -STRIDE, 0), k(half + q, 0, LIFT), k(T, STRIDE, 0)]
+      : [k(0, -STRIDE, 0), k(q, 0, LIFT), k(half, STRIDE, 0), k(half + q, 0, 0), k(T, -STRIDE, 0)];
+    return { translate: fwd };
+  };
+
+  /** دست‌ها برعکس پای هم‌سمت تاب می‌خورند تا تعادل بدن طبیعی به نظر برسد */
+  const handPath = (phase) => ({
+    translate: phase === 0
+      ? [{ time: 0, x: -ARM_SWING, y: 0 }, { time: half, x: ARM_SWING, y: 40 }, { time: T, x: -ARM_SWING, y: 0 }]
+      : [{ time: 0, x: ARM_SWING, y: 40 }, { time: half, x: -ARM_SWING, y: 0 }, { time: T, x: ARM_SWING, y: 40 }]
   });
 
   return {
     bones: {
-      // پاها: فاز مخالف هم
-      thigh_l: swing(32, -26),
-      thigh_r: swing(-26, 32),
-      shin_l: knee(0),
-      shin_r: knee(1),
-      foot_l: swing(10, -6),
-      foot_r: swing(-6, 10),
-
-      // دست‌ها برعکس پاها تاب می‌خورند تا تعادل بدن طبیعی به نظر برسد
-      upperarm_l: swing(-28, 24),
-      upperarm_r: swing(24, -28),
-      forearm_l: { rotate: [{ value: -58 }, { time: half, value: -72 }, { time: T, value: -58 }] },
-      forearm_r: { rotate: [{ value: -72 }, { time: half, value: -58 }, { time: T, value: -72 }] },
+      // پاها و دست‌ها از طریق هدف‌های IK حرکت می‌کنند، نه چرخش مستقیم استخوان.
+      // ریگ خودکار برای هر دست و پا یک قید IK می‌سازد، و حل‌کنندهٔ IK چرخش‌های FK را بازنویسی
+      // می‌کند؛ نتیجه این بود که چرخهٔ دویدن فقط ۳۳ واحد (حدود ۷ پیکسل) جابه‌جایی می‌داد و
+      // عملاً دیده نمی‌شد. با حرکت دادن هدف، زانو و آرنج را خود حل‌کننده خم می‌کند.
+      ik_foot_l: footPath(0),
+      ik_foot_r: footPath(1),
+      ik_hand_l: handPath(0),
+      ik_hand_r: handPath(1),
 
       // بالاتنه: چرخش خفیف خلاف جهت لگن و بالا-پایین شدن دو بار در هر چرخه
       chest: { rotate: [{ value: 3 }, { time: half, value: -3 }, { time: T, value: 3 }] },
@@ -806,9 +807,9 @@ function buildRunAnimation(cycleSec = 0.6) {
         rotate: [{ value: -3 }, { time: half, value: 3 }, { time: T, value: -3 }],
         translate: [
           { time: 0, y: 0 },
-          { time: q, y: -34 },
+          { time: q, y: -HIP_BOB },
           { time: half, y: 0 },
-          { time: half + q, y: -34 },
+          { time: half + q, y: -HIP_BOB },
           { time: T, y: 0 }
         ]
       }
@@ -880,6 +881,13 @@ export async function buildCharacterRig(characterSpec, options = {}) {
     try {
       const sheetPrompt = buildBodySheetPrompt(charName, characterSpec?.appearance);
       const sheetBuf = await generateStaticPngWithVertex(sheetPrompt);
+      // تصویر خام بدن کنار دارایی‌ها نگه داشته می‌شود: هم برای بازرسی اینکه مدل چه کشیده،
+      // هم برای اینکه بتوان برش و چیدمان را بدون تولید دوبارهٔ تصویر محلی بازتولید و تست کرد.
+      try {
+        writeFileSync(join(charDir, `${charId}.sheet.png`), sheetBuf);
+      } catch {
+        // ذخیره‌نشدن تصویر خام نباید ساخت کاراکتر را متوقف کند
+      }
       const sliced = sliceBodySheet(decodePngBuffer(sheetBuf));
       if (!sliced.ok) {
         warnings.push(`برش تصویر بدن کاراکتر "${charId}" ناموفق بود: ${sliced.error}؛ هر عضو جداگانه ساخته می‌شود`);
@@ -1084,11 +1092,11 @@ export async function buildCharacterRig(characterSpec, options = {}) {
   // تزریق در سطح JSON انجام می‌شود، چون در مدلِ اسکلت `animations` یک آرایه از اشیای Animation
   // است و افزودن کلید به آن بی‌اثر و بی‌صدا نادیده گرفته می‌شود.
   const rigBoneNames = new Set((doc.bones || []).map(b => b.name));
-  if (rigBoneNames.has('thigh_l') && rigBoneNames.has('thigh_r')) {
+  if (rigBoneNames.has('ik_foot_l') && rigBoneNames.has('ik_foot_r')) {
     skelJson.animations = skelJson.animations || {};
     skelJson.animations.run = buildRunAnimation();
   } else {
-    warnings.push(`کاراکتر "${charId}" استخوان ران ندارد، پس انیمیشن دویدن ساخته نشد`);
+    warnings.push(`کاراکتر "${charId}" هدف IK پا ندارد، پس انیمیشن دویدن ساخته نشد`);
   }
 
   writeFileSync(skelFullPath, JSON.stringify(skelJson, null, 2), 'utf8');
@@ -1106,11 +1114,15 @@ export async function buildCharacterRig(characterSpec, options = {}) {
       const { Storage } = await import('@google-cloud/storage');
       const storage = new Storage();
       const bucket = storage.bucket(process.env.OUTPUT_BUCKET);
-      for (const [localFile, destRel] of [
+      const sheetFull = join(charDir, `${charId}.sheet.png`);
+      const uploads = [
         [skelFullPath, skelRelPath],
         [atlasFullPath, atlasRelPath],
         [pngFullPath, pngRelPath]
-      ]) {
+      ];
+      // تصویر خام بدن هم آپلود می‌شود تا بتوان دید مدل دقیقاً چه کشیده و برش را بازتولید کرد
+      if (existsSync(sheetFull)) uploads.push([sheetFull, `assets/${charId}/${charId}.sheet.png`]);
+      for (const [localFile, destRel] of uploads) {
         await bucket.upload(localFile, { destination: destRel });
         gcsUris.push(`gs://${process.env.OUTPUT_BUCKET}/${destRel}`);
       }
