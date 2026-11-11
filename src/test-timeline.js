@@ -90,6 +90,42 @@ async function main() {
   if (sx !== 0) throw new Error(`کاراکتر بدون fromX باید در جایگاه ثابت ۰ بماند، اما ${sx} شد`);
   console.log('جابه‌جایی کاراکتر در طول صحنه کار می‌کند و رفتار پیش‌فرض نشکسته است.');
 
+  // قاب‌بندی دوربین: کاراکتر باید کسر خواسته‌شده از ارتفاع قاب را بگیرد، نه بیشتر از کل قاب.
+  // قبلاً مقیاس عددِ ثابت بود و به قد کاراکتر گره نداشت، پس نمای «wide» بازیکن را ۱۰۸٪ ارتفاع
+  // قاب می‌کرد و سرش بیرون می‌زد.
+  const framingDirecting = {
+    title: 'قاب‌بندی', durationSec: 10,
+    characters: [{ id: 'solo' }],
+    scenes: [{ id: 'f1', startSec: 0, endSec: 10, camera: 'wide', characters: [{ id: 'solo', action: 'idle' }] }]
+  };
+  const tlFrame = new Timeline(framingDirecting, skeleton);
+  const figure = tlFrame.figureHeight();
+  if (!(figure > 100)) throw new Error(`قد کاراکتر اندازه‌گیری نشد: ${figure}`);
+
+  for (const [camName, expected] of [['wide', 0.30], ['medium', 0.58], ['close', 1.05]]) {
+    const tlc = new Timeline(
+      { ...framingDirecting, scenes: [{ ...framingDirecting.scenes[0], camera: camName }] },
+      skeleton
+    );
+    // مقیاس نسبت به ارتفاع مرجع ۵۴۰ نرمال می‌شود (هم‌راستا با video-encoder)
+    const fraction = (tlc.figureHeight() * tlc.cameraAt(5).scale) / 540;
+    if (Math.abs(fraction - expected) > 0.02) {
+      throw new Error(`نمای "${camName}" باید ${expected * 100}٪ ارتفاع قاب باشد، اما ${(fraction * 100).toFixed(0)}٪ شد`);
+    }
+  }
+  console.log(`قاب‌بندی دوربین از روی قد اندازه‌گیری‌شده (${figure.toFixed(0)} واحد) درست حساب می‌شود.`);
+
+  // دوربین دستی باید دقیقاً همان مقدار صحنه را بدهد و از قاب‌بندی خودکار پیروی نکند
+  const tlManual = new Timeline(
+    { ...framingDirecting, scenes: [{ ...framingDirecting.scenes[0], camera: { worldX: 120, worldY: 900, scale: 0.19 } }] },
+    skeleton
+  );
+  const manual = tlManual.cameraAt(5);
+  if (manual.scale !== 0.19 || manual.worldY !== 900 || manual.worldX !== 120) {
+    throw new Error(`دوربین دستی رعایت نشد: ${JSON.stringify(manual)}`);
+  }
+  console.log('دوربین دستی صحنه عیناً رعایت می‌شود.');
+
   // بررسی ۲۰ کاراکتر هم‌زمان داخل قاب wide، کاراکتر بدون دیالوگ بدون دهان (موفق)، و لب‌خوانی تک‌مسیره بدون تغییر مدت انیمیشن
   const skelWithoutMouth = skeleton.clone();
   const mouthIdx = skelWithoutMouth.slots.findIndex(s => s.name === 'mouth');

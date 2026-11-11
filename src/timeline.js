@@ -49,13 +49,27 @@ const ACTION_FALLBACKS = {
 };
 
 /** نگاشت نام دوربین کارگردانی به پارامترهای دوربین رندر (باگ #6) */
-const CAMERA_PRESETS = {
-  wide:   { worldX: 0, worldY: 1200, scale: 0.22 },
-  medium: { worldX: 0, worldY: 1400, scale: 0.28 },
-  close:  { worldX: 0, worldY: 1550, scale: 0.38 },
-  closeup:{ worldX: 0, worldY: 1550, scale: 0.38 }
+/**
+ * قاب‌بندی دوربین به‌صورت «کسری از ارتفاع قاب که کاراکتر باید اشغال کند» تعریف می‌شود،
+ * نه مقیاس ثابت. مقیاس ثابت به قد کاراکتر در واحد جهانی گره خورده بود و با عوض شدن نسبت‌های
+ * بدن از کالیبره خارج می‌شد: با scale=0.22 بازیکن ۱۰۸٪ ارتفاع قاب می‌شد و سرش بیرون می‌زد،
+ * یعنی نمای «wide» عملاً نمای بسته بود.
+ * مقیاس واقعی در cameraAt از روی قد اندازه‌گیری‌شدهٔ همان کاراکتر حساب می‌شود.
+ */
+const CAMERA_FRAMING = {
+  wide:   { worldYRatio: 0.50, heightFraction: 0.30 },
+  medium: { worldYRatio: 0.52, heightFraction: 0.58 },
+  close:  { worldYRatio: 0.66, heightFraction: 1.05 },
+  closeup:{ worldYRatio: 0.90, heightFraction: 2.20 }
 };
-const DEFAULT_CAMERA = CAMERA_PRESETS.medium;
+
+/** ارتفاع مرجع قاب که مقیاس نسبت به آن نرمال می‌شود (هم‌راستا با نرمال‌سازی video-encoder) */
+const REFERENCE_FRAME_HEIGHT = 540;
+
+/** قد تقریبی کاراکتر در واحد جهانی، اگر اندازه‌گیری از اسکلت ممکن نبود */
+const FALLBACK_FIGURE_HEIGHT = 2630;
+
+const DEFAULT_CAMERA_KEY = 'medium';
 
 /**
  * انتخاب انیمیشن فقط از میان انیمیشن‌های موجود در اسکلت همان کاراکتر.
@@ -268,26 +282,77 @@ export class Timeline {
   }
 
   /** پارامترهای دوربین برای زمان داده شده، از فیلد camera صحنه (باگ #6 و ب20: حفظ تا ۲۰ کاراکتر داخل قاب wide) */
+  /**
+   * قد کاراکترها در واحد جهانی، یک‌بار از روی pose استراحت اندازه‌گیری و نگه داشته می‌شود.
+   * دوربین از روی همین عدد مقیاس را حساب می‌کند، پس اگر نسبت‌های بدن عوض شوند قاب‌بندی
+   * خودش را تطبیق می‌دهد و نیازی به کالیبرهٔ دستی مقیاس نیست.
+   */
+  figureHeight() {
+    if (this._figureHeight) return this._figureHeight;
+    let tallest = 0;
+    for (const id of this.characterIds()) {
+      const skel = this.skeletonFor(id);
+      if (!skel) continue;
+      try {
+        const inst = new CharacterInstance(skel);
+        inst.advance(0);
+        let minY = Infinity, maxY = -Infinity;
+        for (const q of inst.pose.quads(skel)) {
+          for (const [, y] of q.positions) {
+            if (y < minY) minY = y;
+            if (y > maxY) maxY = y;
+          }
+        }
+        if (Number.isFinite(minY) && maxY > minY) tallest = Math.max(tallest, maxY - minY);
+      } catch {
+        // اندازه‌گیری یک کاراکتر که شکست بخورد، بقیه را متوقف نمی‌کند
+      }
+    }
+    this._figureHeight = tallest > 0 ? tallest : FALLBACK_FIGURE_HEIGHT;
+    return this._figureHeight;
+  }
+
+  /** مقیاس لازم تا کاراکتر همان کسر خواسته‌شده از ارتفاع قاب را بگیرد */
+  scaleForFraction(heightFraction) {
+    return (heightFraction * REFERENCE_FRAME_HEIGHT) / this.figureHeight();
+  }
+
   cameraAt(timeSec) {
     const scene = this.sceneAt(timeSec);
     const cam = scene?.camera;
+    const height = this.figureHeight();
+
+    // دوربین دستی: هر مقداری که صحنه صریحاً داده، عیناً رعایت می‌شود
     if (cam && typeof cam === 'object') {
+      const fallback = CAMERA_FRAMING[DEFAULT_CAMERA_KEY];
       return {
-        worldX: Number(cam.worldX) || DEFAULT_CAMERA.worldX,
-        worldY: Number(cam.worldY) || DEFAULT_CAMERA.worldY,
-        scale: Number(cam.scale) > 0 ? Number(cam.scale) : DEFAULT_CAMERA.scale
+        worldX: Number(cam.worldX) || 0,
+        worldY: Number(cam.worldY) || Math.round(height * fallback.worldYRatio),
+        scale: Number(cam.scale) > 0 ? Number(cam.scale) : this.scaleForFraction(fallback.heightFraction)
       };
     }
-    const preset = CAMERA_PRESETS[String(cam || '').toLowerCase()];
-    const result = preset ? { ...preset } : { ...DEFAULT_CAMERA };
+
+    const key = String(cam || '').toLowerCase();
+    const framing = CAMERA_FRAMING[key] || CAMERA_FRAMING[DEFAULT_CAMERA_KEY];
+    const result = {
+      worldX: 0,
+      worldY: Math.round(height * framing.worldYRatio),
+      scale: this.scaleForFraction(framing.heightFraction)
+    };
+
+    // با زیاد شدن کاراکترها قاب باز می‌شود تا همه داخل تصویر جا شوند
     const activeCount = this.activeCharacterIdsAt(timeSec).length;
+    const wideScale = this.scaleForFraction(CAMERA_FRAMING.wide.heightFraction);
     if (activeCount > 3) {
       const widenFactor = 1 + (activeCount - 3) * 0.07;
-      result.scale = Math.max(0.08, Math.min(result.scale, CAMERA_PRESETS.wide.scale) / widenFactor);
-      result.worldY = 1350;
-    } else if (result.scale > 0.3 && activeCount > 1) {
-      result.scale = 0.3;
-      result.worldY = 1450;
+      result.scale = Math.max(wideScale * 0.35, Math.min(result.scale, wideScale) / widenFactor);
+      result.worldY = Math.round(height * CAMERA_FRAMING.wide.worldYRatio);
+    } else if (activeCount > 1) {
+      const mediumScale = this.scaleForFraction(CAMERA_FRAMING.medium.heightFraction);
+      if (result.scale > mediumScale) {
+        result.scale = mediumScale;
+        result.worldY = Math.round(height * CAMERA_FRAMING.medium.worldYRatio);
+      }
     }
     return result;
   }
