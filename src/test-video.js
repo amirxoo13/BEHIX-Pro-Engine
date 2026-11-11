@@ -61,27 +61,28 @@ async function main() {
   const mIdx = mouthlessSkel.slots.findIndex(s => s.name === 'mouth');
   if (mIdx >= 0) mouthlessSkel.removeSlot(mIdx);
 
-  let jobFailedAsExpected = false;
-  try {
-    await executeChunkedRenderJob('test-failed-mouth-job', mockDirecting(), {
-      duration: 2,
-      chunkDurationSec: 1,
-      fps: 6,
-      width: 320,
-      height: 180,
-      buildAssets: false,
-      characterSkeletons: {
-        boy: mouthlessSkel
-      }
-    });
-  } catch {
-    jobFailedAsExpected = true;
+  // رفتار مقاوم‌شده: نبود اسلات دهان کار را نمی‌کُشد؛ فیلم کامل می‌شود،
+  // صدا ساخته می‌شود و فقط لب‌خوانی همان کاراکتر با هشدار رد می‌شود.
+  const mouthJobState = await executeChunkedRenderJob('test-failed-mouth-job', mockDirecting(), {
+    duration: 2,
+    chunkDurationSec: 1,
+    fps: 6,
+    width: 320,
+    height: 180,
+    buildAssets: false,
+    characterSkeletons: {
+      boy: mouthlessSkel
+    }
+  });
+  const savedMouthState = await loadJobStatus('test-failed-mouth-job');
+  const mouthWarn = (savedMouthState?.warnings || []).some(w => w.includes('boy') && w.includes('دهان'));
+  if (!savedMouthState || savedMouthState.status !== 'completed' || !savedMouthState.downloadUrl || !mouthWarn) {
+    throw new Error(`کار بدون دهان باید completed با هشدار دهان و downloadUrl باشد، اما: ${JSON.stringify(savedMouthState)}`);
   }
-  const failedJobState = await loadJobStatus('test-failed-mouth-job');
-  if (!jobFailedAsExpected || !failedJobState || failedJobState.status !== 'failed' || failedJobState.downloadUrl !== null || !failedJobState.error?.includes('دهان')) {
-    throw new Error(`وضعیت کار بدون دهان باید failed و بدون downloadUrl باشد، اما: ${JSON.stringify(failedJobState)}`);
+  if (!mouthJobState?.audio || mouthJobState.audio.lineCount < 1) {
+    throw new Error('با وجود نبود دهان، ترک صوتی باید ساخته می‌شد');
   }
-  console.log('تایید شد: کاراکتر دارای دیالوگ بدون اسلات دهان وضعیت Job را failed می‌کند و لینک دانلود موفق نمی‌دهد.');
+  console.log('تایید شد: کاراکتر بدون اسلات دهان فقط هشدار لب‌خوانی می‌گیرد؛ فیلم و صدا کامل ساخته می‌شوند.');
 
   console.log('=== پایان تست اولویت ۵ ===');
 }

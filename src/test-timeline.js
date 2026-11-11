@@ -170,7 +170,8 @@ async function main() {
       throw new Error('poseAt خارج از دیالوگ دهان را بدون مقدار گذاشت');
     }
 
-    // بررسی خطای صریح وقتی کاراکتری دیالوگ دارد اما اسلات دهان در ریگ او نیست
+    // کاراکتر دیالوگ‌دار بدون اسلات دهان: صدا ساخته می‌شود و فقط لب‌خوانی همان خط
+    // با «هشدار» رد می‌شود (کل فیلم نباید بمیرد — رفتار مقاوم‌شده پس از ریگ‌های جایگزین)
     const badMouthDirecting = {
       ...multiDirecting,
       scenes: [{
@@ -178,22 +179,19 @@ async function main() {
         lines: [{ characterId: 'hero_1', text: 'من دهان ندارم ولی دیالوگ دارم', startSec: 0.2, endSec: 1.2 }]
       }]
     };
-    let mouthErrorThrown = false;
-    try {
-      await buildAudioTrackAndLipSync(badMouthDirecting, tl20, tempWork, { fps: 24, duration: 10 });
-    } catch (err) {
-      if (err.message.includes('hero_1') && err.message.includes('دهان')) {
-        mouthErrorThrown = true;
-      }
+    const noMouthRes = await buildAudioTrackAndLipSync(badMouthDirecting, tl20, tempWork, { fps: 24, duration: 10, useCloudTts: false });
+    const mouthWarned = (noMouthRes.warnings || []).some(w => w.includes('hero_1') && w.includes('دهان'));
+    if (!mouthWarned) {
+      throw new Error('نبودن اسلات دهان باید هشدار ثبت کند (نه خطا) ولی هشداری ثبت نشد!');
     }
-    if (!mouthErrorThrown) {
-      throw new Error('نبودن اسلات دهان برای کاراکتر دارای دیالوگ خطا پرتاب نکرد!');
+    if (!noMouthRes.audioPath) {
+      throw new Error('با وجود نبود دهان، ترک صوتی باید ساخته می‌شد');
     }
   } finally {
     rmSync(tempWork, { recursive: true, force: true });
   }
 
-  console.log('پشتیبانی از ۲۰ کاراکتر داخل قاب wide، لب‌خوانی تک‌مسیره روی انیمیشن فعال بدون تغییر مدت، و خطای نبودن دهان تایید شد.');
+  console.log('پشتیبانی از ۲۰ کاراکتر داخل قاب wide، لب‌خوانی تک‌مسیره روی انیمیشن فعال بدون تغییر مدت، و هشدارِ نبودن دهان (بدون مرگ کار) تایید شد.');
   console.log('=== پایان تست اولویت ۳ ===');
 }
 
