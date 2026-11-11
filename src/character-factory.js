@@ -818,6 +818,39 @@ function buildRunAnimation(cycleSec = 0.6) {
   };
 }
 
+/**
+ * ترتیب رسم استاندارد انیمیشن برش‌دار (از عقب به جلو).
+ *
+ * چرا لازم است: ریگ خودکار اسلات‌ها را به ترتیب کشف‌شدن می‌چیند، پس آستین و بازو روی تنه
+ * رسم می‌شدند و مثل «محافظ شانه» بیرون می‌زدند. در انیمیشن برش‌دار، بازو باید زیر تنه برود
+ * تا سرشانه تو برود و درز دیده نشود، و دست جلوی شورت بیفتد.
+ */
+const STANDARD_DRAW_ORDER = [
+  'upperarm_r', 'upperarm_l', 'forearm_r', 'forearm_l',
+  'thigh_r', 'shin_r', 'foot_r',
+  'thigh_l', 'shin_l', 'foot_l',
+  'pelvis', 'torso', 'neck',
+  'hair_back', 'head',
+  'ear_r', 'ear_l', 'eye_r', 'eye_l', 'pupil_r', 'pupil_l',
+  'brow_r', 'brow_l', 'nose', 'jaw', 'mouth', 'hair',
+  'hand_r', 'hand_l'
+];
+
+/**
+ * چیدن اسلات‌های اسکلت به ترتیب رسم استاندارد.
+ * اسلات‌هایی که در فهرست نیستند ترتیب نسبی خودشان را نگه می‌دارند و جلوتر رسم می‌شوند.
+ */
+function applyStandardDrawOrder(doc) {
+  let target = 0;
+  for (const name of STANDARD_DRAW_ORDER) {
+    const current = doc.slots.findIndex(sl => sl.name === name);
+    if (current < 0) continue;
+    if (current !== target) doc.moveSlot(current, target);
+    target++;
+  }
+  return target;
+}
+
 export async function buildCharacterRig(characterSpec, options = {}) {
   const variantIndex = Number.isFinite(options.variantIndex) ? options.variantIndex : 0;
   const charId = sanitizeId(characterSpec?.id || characterSpec?.name || 'char');
@@ -1084,6 +1117,13 @@ export async function buildCharacterRig(characterSpec, options = {}) {
   const atlasFullPath = join(charDir, `${charId}.atlas`);
   const pngFullPath = join(charDir, `${charId}.png`);
   const rgbaFullPath = join(charDir, `${charId}.rgba`);
+
+  // ترتیب رسم پیش از سریال‌سازی اعمال می‌شود تا بازو زیر تنه برود، نه روی آن
+  try {
+    applyStandardDrawOrder(doc);
+  } catch (err) {
+    warnings.push(`اعمال ترتیب رسم برای کاراکتر "${charId}" ناموفق بود (${err.message})`);
+  }
 
   const { json: skelJson } = writeSkeletonJson(doc);
 

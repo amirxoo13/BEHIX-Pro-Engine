@@ -126,6 +126,21 @@ async function main() {
     console.log('چرخهٔ دویدن در طول زمان pose را واقعاً تغییر می‌دهد.');
   }
 
+  // ترتیب رسم: بازو باید زیر تنه برود و دست روی آن، وگرنه آستین مثل محافظ شانه بیرون می‌زند
+  {
+    const skel = loadSkeletonFromFile(directing.characters[0].skeletonPath);
+    const names = skel.slots.map(sl => sl.name);
+    const at = n => names.indexOf(n);
+    for (const side of ['l', 'r']) {
+      assert(at(`upperarm_${side}`) >= 0 && at(`upperarm_${side}`) < at('torso'),
+        `بازوی "${side}" باید پیش از تنه رسم شود (زیر آن)`);
+      assert(at(`hand_${side}`) > at('torso'), `دست "${side}" باید پس از تنه رسم شود (روی آن)`);
+    }
+    assert(at('head') > at('torso'), 'سر باید پس از تنه رسم شود');
+    assert(at('mouth') > at('head'), 'دهان باید پس از سر رسم شود');
+    console.log('ترتیب رسم استاندارد است (بازو زیر تنه، دست و سر رویش).');
+  }
+
   // کاراکترهای مشتق‌شده باید دقیقاً همان ساختار استخوانی نقش اصلی را داشته باشند
   const distinctBoneCounts = new Set(boneCounts.values());
   assert(
