@@ -1,0 +1,77 @@
+test_autorig_char.png
+size: 2048, 2048
+filter: Linear, Linear
+hair
+bounds: 2, 2, 700, 682
+head
+bounds: 704, 2, 570, 676
+torso
+bounds: 1276, 2, 476, 507
+thigh_r
+bounds: 1754, 2, 237, 479
+thigh_l
+bounds: 2, 686, 237, 479
+shin_r
+bounds: 241, 686, 222, 477
+shin_l
+bounds: 465, 686, 222, 477
+upperarm_r
+bounds: 689, 686, 351, 404
+upperarm_l
+bounds: 1042, 686, 351, 404
+pelvis
+bounds: 1395, 686, 410, 358
+forearm_r
+bounds: 2, 1167, 260, 273
+forearm_l
+bounds: 264, 1167, 260, 273
+neck
+bounds: 526, 1167, 106, 238
+foot_r
+bounds: 634, 1167, 259, 201
+foot_l
+bounds: 895, 1167, 259, 201
+hand_r
+bounds: 1156, 1167, 156, 163
+hand_l
+bounds: 1314, 1167, 156, 163
+ear_r
+bounds: 1472, 1167, 86, 145
+ear_l
+bounds: 1560, 1167, 86, 145
+eye_r
+bounds: 1648, 1167, 129, 130
+eye_l
+bounds: 1779, 1167, 129, 130
+mouth_viseme_A
+bounds: 1910, 1167, 106, 94
+pupil_r
+bounds: 2, 1442, 92, 92
+pupil_l
+bounds: 96, 1442, 92, 92
+mouth_viseme_O
+bounds: 190, 1442, 60, 78
+mouth_viseme_L
+bounds: 252, 1442, 98, 74
+nose
+bounds: 352, 1442, 52, 64
+mouth_viseme_U
+bounds: 406, 1442, 40, 50
+mouth_viseme_E
+bounds: 448, 1442, 122, 48
+brow_r
+bounds: 572, 1442, 146, 39
+brow_l
+bounds: 720, 1442, 146, 39
+mouth
+bounds: 868, 1442, 110, 36
+mouth_smile
+bounds: 980, 1442, 110, 36
+mouth_viseme_I
+bounds: 1092, 1442, 106, 36
+mouth_viseme_FV
+bounds: 1200, 1442, 90, 36
+mouth_viseme_MBP
+bounds: 1292, 1442, 76, 28
+mouth_closed
+bounds: 1370, 1442, 74, 15

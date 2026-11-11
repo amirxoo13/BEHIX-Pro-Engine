@@ -217,6 +217,28 @@ function inlineDataBase64(data, kind) {
  * فراخوانی مدل تصویر (پیش‌فرض gemini-3.1-flash-image) با generateContent.
  * خروجی فقط PNG ثابت است و از inlineData خوانده می‌شود. :predict و bytesBase64Encoded استفاده نمی‌شود.
  */
+
+/**
+ * POST با retry و backoff نمایی برای خطاهای گذرا (429 سهمیه، 500/503).
+ * Retry-After را در صورت وجود رعایت می‌کند. برای بقیهٔ کدها همان پاسخ برمی‌گردد.
+ */
+export async function postJsonWithRetry(endpoint, headers, bodyObj, { attempts = 5, baseDelayMs = 8000, label = 'vertex' } = {}) {
+  let lastRes = null;
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    lastRes = await fetch(endpoint, { method: 'POST', headers, body: JSON.stringify(bodyObj) });
+    if (lastRes.ok) return lastRes;
+    if (![429, 500, 503].includes(lastRes.status) || attempt === attempts) return lastRes;
+    const retryAfter = Number(lastRes.headers.get('retry-after'));
+    const waitMs = Number.isFinite(retryAfter) && retryAfter > 0
+      ? retryAfter * 1000
+      : baseDelayMs * Math.pow(2, attempt - 1);
+    console.warn(`[${label}] کد ${lastRes.status}؛ تلاش ${attempt}/${attempts}، صبر ${Math.round(waitMs / 1000)} ثانیه`);
+    await lastRes.text().catch(() => '');
+    await new Promise(r => setTimeout(r, Math.min(waitMs, 120000)));
+  }
+  return lastRes;
+}
+
 export async function generateStaticPngWithVertex(prompt, options = {}) {
   const project = process.env.VERTEX_AI_PROJECT;
   const apiKey = process.env.GOOGLE_API_KEY;
@@ -238,17 +260,13 @@ export async function generateStaticPngWithVertex(prompt, options = {}) {
     endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${imageModel}:generateContent`;
   }
 
-  const res = await fetch(endpoint, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({
-      contents: [{ role: 'user', parts: [{ text: String(prompt) }] }],
-      generationConfig: {
-        responseModalities: ['TEXT', 'IMAGE'],
-        imageConfig: { aspectRatio: options.aspectRatio || '1:1' }
-      }
-    })
-  });
+  const res = await postJsonWithRetry(endpoint, headers, {
+    contents: [{ role: 'user', parts: [{ text: String(prompt) }] }],
+    generationConfig: {
+      responseModalities: ['TEXT', 'IMAGE'],
+      imageConfig: { aspectRatio: options.aspectRatio || '1:1' }
+    }
+  }, { label: 'image:' + imageModel });
 
   if (!res.ok) {
     const errText = await res.text().catch(() => '');

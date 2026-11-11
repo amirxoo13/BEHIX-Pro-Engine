@@ -64,22 +64,19 @@ export async function synthesizeLineWithGoogleTts(text, options = {}) {
     throw new Error('VERTEX_AI_PROJECT یا GOOGLE_API_KEY برای سرویس TTS تنظیم نشده است');
   }
 
-  const res = await fetch(endpoint, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({
-      contents: [{ role: 'user', parts: [{ text: String(text) }] }],
-      generationConfig: {
-        responseModalities: ['AUDIO'],
-        responseFormat: {
-          audio: { mimeType: 'AUDIO_L16', sampleRate: SAMPLE_RATE }
-        },
-        speechConfig: {
-          voiceConfig: { voice: options.voiceName || 'Kore' }
-        }
+  const { postJsonWithRetry } = await import('./character-factory.js');
+  const res = await postJsonWithRetry(endpoint, headers, {
+    contents: [{ role: 'user', parts: [{ text: String(text) }] }],
+    generationConfig: {
+      responseModalities: ['AUDIO'],
+      responseFormat: {
+        audio: { mimeType: 'AUDIO_L16', sampleRate: SAMPLE_RATE }
+      },
+      speechConfig: {
+        voiceConfig: { voice: options.voiceName || 'Kore' }
       }
-    })
-  });
+    }
+  }, { label: 'tts:' + ttsModel });
 
   if (!res.ok) {
     const raw = await res.text().catch(() => '');
@@ -256,9 +253,11 @@ export async function buildAudioTrackAndLipSync(directing, timeline, workDir, op
       const attNames = (mouthSlot?.attachments || []).map(a => a.name);
 
       if (mouthSlotIdx < 0 || attNames.length === 0) {
-        throw new Error(`خطای لب‌خوانی: کاراکتر "${line.characterId}" دارای خط دیالوگ است اما اسلات دهان (mouth) در ریگ او وجود ندارد`);
-      }
-
+        // ریگ بدون دهان (مثلاً ریگ جایگزین پس از خطای تولید تصویر): صدا ساخته می‌شود،
+        // فقط لب‌خوانی همین کاراکتر با هشدار رد می‌شود؛ کل فیلم نمی‌میرد.
+        warnings.push(`لب‌خوانی برای کاراکتر "${line.characterId}" رد شد: اسلات دهان (mouth) در ریگ او وجود ندارد`);
+        mouthSlotIdx = -1;
+      } else {
       mouths = matchMouths(attNames);
       const fallbackOpen = mouths.A || mouths.O || mouths.E || mouths.I || attNames[0] || null;
       const fallbackRest = mouths.rest || mouths.MBP || attNames.find(n => /closed|rest|smile|idle/i.test(n)) || attNames[0] || null;
@@ -269,7 +268,9 @@ export async function buildAudioTrackAndLipSync(directing, timeline, workDir, op
       const activeAnimName = timeline.animationFor(line.characterId, line.startSec);
       activeAnim = (skel.animations || []).find(a => a.name === activeAnimName) || skel.animations?.[0] || null;
       if (!activeAnim) {
-        throw new Error(`خطای لب‌خوانی: انیمیشن فعال برای کاراکتر "${line.characterId}" در بازهٔ [${line.startSec}, ${line.endSec}] یافت نشد`);
+        warnings.push(`لب‌خوانی برای کاراکتر "${line.characterId}" رد شد: انیمیشن فعال در بازهٔ [${line.startSec}, ${line.endSec}] یافت نشد`);
+        mouthSlotIdx = -1;
+      }
       }
     }
 
