@@ -131,6 +131,55 @@ export function defaultCharacterLayers(charId) {
   }));
 }
 
+/**
+ * مجموعهٔ هستهٔ اعضای بدن که برای یک بدنِ بدون سوراخ و قابل انیمیت لازم است.
+ *
+ * چرا لازم است: برگهٔ کاراکتری که مدل می‌سازد گاهی فقط چند لایه می‌دهد (مثلاً تنه، سر، ران) و
+ * آن‌وقت لگن، ساق، پا، ساعد و دست وجود ندارند و بدن وسطش قطع می‌شود.
+ * جزئیات صورت (چشم، ابرو، بینی، مو، گوش) عمداً در این فهرست نیست چون داخل خودِ تصویر سر کشیده
+ * می‌شود؛ فقط دهان جداست تا لب‌خوانی کار کند. این توازن بدنِ کامل را با کمترین تعداد تصویر می‌دهد.
+ */
+export const CORE_BODY_LAYERS = Object.freeze([
+  { name: 'pelvis', role: 'pelvis', side: null },
+  { name: 'torso', role: 'torso', side: null },
+  { name: 'head', role: 'head', side: null },
+  { name: 'mouth', role: 'mouth', side: null },
+  { name: 'upperarm_l', role: 'upperarm', side: 'l' },
+  { name: 'upperarm_r', role: 'upperarm', side: 'r' },
+  { name: 'forearm_l', role: 'forearm', side: 'l' },
+  { name: 'forearm_r', role: 'forearm', side: 'r' },
+  { name: 'hand_l', role: 'hand', side: 'l' },
+  { name: 'hand_r', role: 'hand', side: 'r' },
+  { name: 'thigh_l', role: 'thigh', side: 'l' },
+  { name: 'thigh_r', role: 'thigh', side: 'r' },
+  { name: 'shin_l', role: 'shin', side: 'l' },
+  { name: 'shin_r', role: 'shin', side: 'r' },
+  { name: 'foot_l', role: 'foot', side: 'l' },
+  { name: 'foot_r', role: 'foot', side: 'r' }
+]);
+
+/**
+ * تکمیل فهرست لایه‌های یک کاراکتر تا هیچ عضو هسته‌ای جا نیفتد.
+ * لایه‌های اضافهٔ خودِ برگهٔ کاراکتر (مثل مو یا چشم) حفظ می‌شوند.
+ */
+export function ensureCompleteBodyLayers(inputLayers, charId) {
+  const safeId = sanitizeId(charId);
+  const out = Array.isArray(inputLayers) ? [...inputLayers] : [];
+  const present = new Set(
+    out.map(l => String(l?.name || basename(String(l?.file || ''), '.png')).toLowerCase()).filter(Boolean)
+  );
+  for (const core of CORE_BODY_LAYERS) {
+    if (present.has(core.name)) continue;
+    out.push({
+      name: core.name,
+      file: `assets/${safeId}/layers/${core.name}.png`,
+      role: core.role,
+      side: core.side
+    });
+  }
+  return out;
+}
+
 export function sanitizeId(rawId, fallback = 'char') {
   const cleaned = String(rawId || fallback)
     .trim()
@@ -277,6 +326,55 @@ export async function generateStaticPngWithVertex(prompt, options = {}) {
   const b64 = inlineDataBase64(data, 'image');
   if (!b64) throw new Error('پاسخ مدل تصویر فاقد inlineData تصویر بود');
   return Buffer.from(b64, 'base64');
+}
+
+/**
+ * شرح هنریِ دقیق هر عضو بدن برای مدل تصویر.
+ *
+ * چرا لازم است: با پرامپت عمومی، مدل برای «ران چپ» و «ران راست» هر دو یک شورتِ کاملِ دوپا می‌کشد
+ * و برای «ساعد» یک دستِ کامل. نتیجه این می‌شود که اعضا روی هم می‌افتند و بدن قابل انیمیت نیست.
+ * هر عضو باید دقیقاً یک تکهٔ مجزا و از یک مفصل تا مفصل بعدی باشد.
+ */
+const LAYER_ART_BRIEF = {
+  head: 'ONLY the head and face with hair, cut straight across at the base of the neck. No shoulders, no torso.',
+  neck: 'ONLY the neck column, from jaw to collarbone. No head, no shoulders.',
+  torso: 'ONLY the torso/jersey from shoulders down to the waist. No head, no arms, no legs, no shorts.',
+  pelvis: 'ONLY the hips and shorts area, from waist to the top of both thighs. No legs below the shorts, no torso.',
+  upperarm: 'ONLY one single upper arm segment, from shoulder joint to elbow. One limb only. No hand, no forearm, no body.',
+  forearm: 'ONLY one single forearm segment, from elbow to wrist. One limb only. No hand, no upper arm, no body.',
+  hand: 'ONLY one single hand, from wrist to fingertips. One hand only. No arm, no body.',
+  thigh: 'ONLY one single thigh segment, from hip joint to knee. ONE leg only — never a pair of shorts and never two legs. No shin, no foot, no body.',
+  shin: 'ONLY one single lower leg segment, from knee to ankle. ONE leg only. No thigh, no foot, no body.',
+  foot: 'ONLY one single foot in a shoe, from ankle to toe. ONE foot only. No leg, no body.',
+  hair: 'ONLY the hair as a separate piece, shaped to sit on top of a head. No face, no body.',
+  mouth: 'ONLY a mouth with lips, closed neutral expression, drawn large and centered. No face, no head, no body.',
+  eye: 'ONLY one single eye with eyelid and lashes, drawn large and centered. No face, no head.',
+  pupil: 'ONLY one single round iris and pupil, drawn large and centered. No eyelid, no face.',
+  brow: 'ONLY one single eyebrow shape, drawn large and centered. No eye, no face.',
+  nose: 'ONLY a nose, drawn large and centered. No face, no head.',
+  ear: 'ONLY one single ear, drawn large and centered. No head, no face.'
+};
+
+/**
+ * ساخت پرامپت تولید تصویر برای یک لایه.
+ *
+ * پس‌زمینه را «تختِ سرخابی» می‌خواهیم، نه «شفاف»: مدل آلفای واقعی تولید نمی‌کند و در پاسخ به درخواست
+ * شفافیت یک الگوی شطرنجی داخل تصویر نقاشی می‌کند. پس‌زمینهٔ تختِ کروما بعداً در کد به آلفای واقعی
+ * تبدیل می‌شود و نتیجه قطعی و قابل‌اتکاست.
+ */
+function buildLayerPrompt(layer, charName, appearance) {
+  const brief = LAYER_ART_BRIEF[layer.role] || `ONLY the single body part "${layer.role}", isolated from the rest of the body.`;
+  const sideWord = layer.side === 'l' ? 'LEFT' : layer.side === 'r' ? 'RIGHT' : '';
+  const sideLine = sideWord ? ` This is the character's ${sideWord} side — draw exactly one ${layer.role}, not a pair.` : '';
+
+  return [
+    `Flat 2D animation sprite of a single isolated body part for the character "${charName}" (${appearance || 'stylized 2D animation character'}).`,
+    `Part: ${layer.role}${sideWord ? ` (${sideWord})` : ''}. ${brief}${sideLine}`,
+    'Draw the part large, centered, front-facing, filling most of the frame, in a clean flat cartoon style with crisp outlines, consistent with the rest of the character.',
+    'The background MUST be a completely flat, uniform, solid magenta (#FF00FF) fill.',
+    'Do NOT draw a checkerboard or transparency grid pattern. Do NOT add any shadow, gradient, texture, border, frame, label, text or watermark on the background.',
+    'Nothing else in the image — only this one body part on flat magenta.'
+  ].join(' ');
 }
 
 /**
@@ -646,9 +744,14 @@ export async function buildCharacterRig(characterSpec, options = {}) {
   const layersDir = join(charDir, 'layers');
   mkdirSync(layersDir, { recursive: true });
 
-  const inputLayers = Array.isArray(characterSpec?.layers) && characterSpec.layers.length > 0
-    ? characterSpec.layers
-    : defaultCharacterLayers(charId);
+  // فهرست لایه‌ها همیشه تا مجموعهٔ هستهٔ بدن تکمیل می‌شود تا بدن وسطش قطع نشود،
+  // حتی اگر برگهٔ کاراکترِ ساخته‌شده توسط مدل ناقص باشد.
+  const inputLayers = ensureCompleteBodyLayers(
+    Array.isArray(characterSpec?.layers) && characterSpec.layers.length > 0
+      ? characterSpec.layers
+      : defaultCharacterLayers(charId),
+    charId
+  );
 
   const warnings = [];
   const validLayers = [];
@@ -706,11 +809,7 @@ export async function buildCharacterRig(characterSpec, options = {}) {
     // به آلفای واقعی تبدیل می‌شود و نتیجه قطعی و قابل‌اتکاست.
     if (!imgData && useVertexImages) {
       try {
-        const prompt = `Single isolated 2D character body part: "${layer.role}" (${layer.side || 'center'}) for character "${charName}" (${characterSpec?.appearance || 'stylized 2D animation character'}). ` +
-          `Flat stylized 2D animation sprite, front-facing, centered, filling most of the frame. ` +
-          `The background MUST be a completely flat, uniform, solid magenta (#FF00FF) fill. ` +
-          `Do NOT draw a checkerboard or transparency grid pattern. Do NOT add any shadow, gradient, texture, border, frame, text or watermark on the background. ` +
-          `Only the single body part on flat magenta — nothing else.`;
+        const prompt = buildLayerPrompt(layer, charName, characterSpec?.appearance);
         const pngBuf = await generateStaticPngWithVertex(prompt);
         const raw = decodePngBuffer(pngBuf);
         const prepared = prepareGeneratedLayer(raw, layout, layer.name);
