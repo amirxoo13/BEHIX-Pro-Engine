@@ -3,51 +3,121 @@
  * اولویت ۱: تست لود و pose با اسکلت نمونه
  *
  * رفع باگ‌ها:
- *  - #10: مسیر اسکلت فقط داخل ریشهٔ پروژه پذیرفته می‌شود (بدون path traversal)
+ *  - #10 / فاز ۱: مسیر دارایی و اسکلت فقط به صورت مسیر نسبی داخل دایرکتوری‌های مجاز ریشهٔ پروژه (examples/ و assets/)
+ *    پذیرفته می‌شود؛ مسیرهای مطلق (`/etc/...`) و `../` (path traversal) قاطعانه رد می‌شوند.
  *  - #5:  CharacterInstance با Pose/AnimationState پایدار؛ فیزیک بین فریم‌ها حفظ می‌شود
  *  - #15: تشخیص اجرای مستقیم با pathToFileURL (با آرگومان نسبی هم کار می‌کند)
  */
 
 import { readSkeletonJson, Pose, AnimationState } from '../engine/rigby-core/index.js';
-import { readFileSync, realpathSync } from 'fs';
+import { readFileSync, realpathSync, existsSync } from 'fs';
 import { fileURLToPath, pathToFileURL } from 'url';
-import { dirname, resolve, sep } from 'path';
+import { dirname, resolve, sep, isAbsolute, normalize } from 'path';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 export const PROJECT_ROOT = resolve(__dirname, '..');
+export const ALLOWED_ASSET_ROOTS = [
+  resolve(PROJECT_ROOT, 'examples'),
+  resolve(PROJECT_ROOT, 'assets')
+];
 
 const skeletonCache = new Map();
 
 /**
- * لود اسکلت از مسیر نسبی، محدود به ریشهٔ پروژه.
- * مقدارهایی مثل `../../etc/passwd` رد می‌شوند (باگ #10).
+ * قفل امن مسیر دارایی (اسکلت، اطلس، لایه، پس‌زمینه):
+ *  - مسیرهای مطلق (isAbsolute) قاطعانه رد می‌شوند.
+ *  - هرگونه `..` (path traversal) قاطعانه رد می‌شود.
+ *  - فقط مسیرهای نسبی که پس از resolve و realpath دقیقاً داخل examples/ یا assets/ زیر PROJECT_ROOT باشند مجازند.
  */
-export function loadSkeletonFromFile(relativePath) {
-  if (typeof relativePath !== 'string' || !relativePath) {
+export function resolveSafeAssetPath(inputPath, defaultRelative = 'examples/nila.skel.json', extraAllowedRoot = null) {
+  const raw = (typeof inputPath === 'string' && inputPath.trim()) ? inputPath.trim() : defaultRelative;
+  if (raw.includes('\0')) {
+    throw new Error('مسیر دارایی حاوی کاراکتر نامعتبر است');
+  }
+  if (isAbsolute(raw) || raw.startsWith('/') || raw.startsWith('\\') || /^[a-zA-Z]:/.test(raw)) {
+    throw new Error(`مسیر مطلق برای دارایی مجاز نیست: "${raw}"`);
+  }
+
+  const rawParts = raw.split(/[\\/]/);
+  if (rawParts.includes('..')) {
+    throw new Error(`مسیر دارایی خارج از ریشهٔ مجاز است (path traversal): "${raw}"`);
+  }
+
+  const normalized = normalize(raw);
+  if (isAbsolute(normalized) || normalized.split(/[\\/]/).includes('..')) {
+    throw new Error(`مسیر دارایی خارج از ریشهٔ مجاز است (path traversal): "${raw}"`);
+  }
+
+  const baseRoot = extraAllowedRoot ? resolve(PROJECT_ROOT, String(extraAllowedRoot)) : PROJECT_ROOT;
+  const candidate = resolve(baseRoot, normalized);
+  let target = candidate;
+  if (existsSync(candidate)) {
+    target = realpathSync(candidate);
+  }
+
+  const allowed = ALLOWED_ASSET_ROOTS.some(root => {
+    const realRoot = existsSync(root) ? realpathSync(root) : root;
+    return (target === realRoot || target.startsWith(realRoot + sep)) &&
+           (candidate === root || candidate.startsWith(root + sep));
+  });
+
+  if (!allowed) {
+    throw new Error(`مسیر دارایی خارج از ریشهٔ مجاز (examples/ یا assets/) است: "${raw}"`);
+  }
+  return target;
+}
+
+/**
+ * مسیر امن اسکلت برای کاراکترهای examples/ و assets/<id>/<id>.skel.json
+ */
+export function safeSkeletonPath(p, extraAllowedRoot = null) {
+  if (!p) return resolveSafeAssetPath('examples/nila.skel.json', 'examples/nila.skel.json', extraAllowedRoot);
+  return resolveSafeAssetPath(String(p), 'examples/nila.skel.json', extraAllowedRoot);
+}
+
+/** پاک کردن کش اسکلت در صورت بازسازی دارایی */
+export function clearSkeletonCache(filePath = null) {
+  if (!filePath) {
+    skeletonCache.clear();
+    return;
+  }
+  try {
+    const full = resolveSafeAssetPath(filePath);
+    skeletonCache.delete(full);
+  } catch (err) {
+    skeletonCache.delete(filePath);
+  }
+}
+
+/**
+ * لود اسکلت از مسیر نسبی، محدود به ریشه‌های مجاز پروژه (examples/ و assets/).
+ * مقدارهایی مثل `../../etc/passwd` یا `/etc/passwd` رد می‌شوند.
+ */
+export function loadSkeletonFromFile(relativePath, options = {}) {
+  if (typeof relativePath !== 'string' || !relativePath.trim()) {
     throw new Error('مسیر اسکلت باید رشتهٔ غیرخالی باشد');
   }
-  const full = resolve(PROJECT_ROOT, relativePath);
-  // realpath برای خنثی کردن symlink؛ اگر فایل نباشد همان resolve چک می‌شود.
-  let real = full;
-  try { real = realpathSync(full); } catch { /* فایل وجود ندارد؛ readFileSync خطای خوانا می‌دهد */ }
-  if (real !== PROJECT_ROOT && !real.startsWith(PROJECT_ROOT + sep)) {
-    throw new Error('مسیر اسکلت خارج از ریشهٔ پروژه مجاز نیست');
+  const full = resolveSafeAssetPath(relativePath, 'examples/nila.skel.json', options.allowedRoot || null);
+  if (!options.noCache && skeletonCache.has(full)) {
+    return skeletonCache.get(full);
   }
-  if (skeletonCache.has(real)) return skeletonCache.get(real);
   let text;
   try {
     text = readFileSync(full, 'utf8');
-  } catch {
-    throw new Error(`فایل اسکلت "${relativePath}" پیدا نشد`);
+  } catch (err) {
+    throw new Error(`فایل اسکلت "${relativePath}" پیدا نشد: ${err.message}`);
   }
   const json = JSON.parse(text);
-  const skeleton = loadSkeleton(json);
-  skeletonCache.set(real, skeleton);
+  const skeleton = loadSkeleton(json, options.name || 'character');
+  skeleton.sourcePath = relativePath;
+  if (!options.noCache) {
+    skeletonCache.set(full, skeleton);
+  }
   return skeleton;
 }
 
-export function loadSkeleton(json) {
-  const { skeleton } = readSkeletonJson(json, 'character');
+export function loadSkeleton(json, name = 'character') {
+  const { skeleton } = readSkeletonJson(json, name);
   return skeleton;
 }
 

@@ -31,3 +31,7 @@ export { parseAtlas, writeAtlas, regionPlacement } from './atlas.js';
 export { isSkeletonBinary, readSkeletonBinary } from './binary.js';
 export { atlasLookup, imageLookup, drawSkeletonGeometry, geometryCache, regionEntry, QUAD } from './draw.js';
 export { ScenePlayer, loadScene, readSceneManifest, sceneDrawList, actorSlots } from './scene.js';
+export { autoRig, findParts, PART_ROLES } from './autorig.js';
+export { ROLES, PAIRED, classify, words, boneKey, normalizedName } from './bodyparts.js';
+export { VISEMES, VISEME_HINTS, wordVisemes, visemeCues, tidy, timeTextByLoudness, readTiming, matchMouths, keyLipSync } from './lipsync.js';
+export { retarget, mapBones, skeletonHeight } from './retarget.js';

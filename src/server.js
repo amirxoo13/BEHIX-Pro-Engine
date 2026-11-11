@@ -1,29 +1,38 @@
 /**
  * سرور HTTP موتور BEHIX Pro
  *
- * رفع باگ‌ها:
+ * رفع باگ‌ها و بهبودهای فاز ۱ و ۲:
  *  - #1: outputPath از بدنهٔ درخواست حذف شد؛ خروجی داخل پوشهٔ یکتای کار نوشته و با
- *        GET /renders/:jobId دانلود می‌شود. احراز هویت اختیاری با BEHIX_API_KEY
- *        (روی Cloud Run با --no-allow-unauthenticated هم IAM جلوی ورود را می‌گیرد).
+ *        GET /renders/:jobId دانلود می‌شود. احراز هویت اختیاری با BEHIX_API_KEY در هدر x-api-key.
  *  - #2: duration/fps/width/height اعتبارسنجی و سقف‌دار (sanitizeRenderOptions).
- *  - #10: options کلاینت فیلتر می‌شود؛ skeletonPath فقط داخل examples/.
- *  - خطاهای داخلی بدون بدنهٔ خام upstream به کلاینت برمی‌گردند.
+ *        درخواست HTTP هم‌زمان حداکثر ۶۰ ثانیه می‌ماند؛ فیلم‌های بلند (۱۸۰ تا ۳۰۰ ثانیه) از طریق Job تکهتکه اجرا می‌شوند
+ *        و POST /render-from-scenario برای فیلم بلند بلافاصله jobId برمی‌گرداند بدون اینکه داخل همان درخواست تا آخر رندر کند.
+ *  - #10: options کلاینت فیلتر می‌شود؛ skeletonPath فقط داخل ریشه‌های مجاز (examples/ و assets/).
+ *  - فاز ۱/۲: وضعیت کارها (jobs) دیگر فقط در Map حافظهٔ پروسه با TTL و MAX_JOBS=50 نگه داشته نمی‌شود؛
+ *             با saveJobStatus و loadJobStatus در Cloud Storage (GCS) ذخیره و بازیابی می‌شود تا ری‌استارت Cloud Run کار را گم نکند.
  */
 
 import express from 'express';
 import { existsSync } from 'fs';
-import { join, dirname } from 'path';
-import { fileURLToPath } from 'url';
+import { join, dirname, resolve } from 'path';
+import { fileURLToPath, pathToFileURL } from 'url';
 import { timingSafeEqual } from 'crypto';
 import { loadSkeletonFromFile, computePose } from './rigby-adapter.js';
-import { generateDirecting } from './gemini-directing.js';
-import { renderFromDirecting, LIMITS } from './index.js';
+import { validateDirecting, LONGFORM_MIN_SEC } from './gemini-directing.js';
+import {
+  renderFromDirecting,
+  LIMITS,
+  saveJobStatus,
+  loadJobStatus,
+  enqueueLongformRenderJob,
+  ensureLocalOutputFromGcs,
+  prepareScenarioDirecting
+} from './index.js';
 import { mockDirecting } from './timeline.js';
-import { cleanupJobDir } from './video-encoder.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const app = express();
+export const app = express();
 app.use(express.json({ limit: '2mb' }));
 
 /** صفحهٔ تست (فارسی) — بدون کلید باز است؛ خود رندرها کلید می‌خواهند */
@@ -40,8 +49,7 @@ function keyMatches(given, required) {
 
 /**
  * احراز هویت اختیاری: اگر BEHIX_API_KEY تنظیم شده باشد، هدر x-api-key اجباری است (باگ #1).
- * استثناها: صفحهٔ تست، /health، و دانلود /renders/:jobId (شناسهٔ UUID خودش محرمانه است
- * و تگ <video> نمی‌تواند هدر بفرستد).
+ * استثناها: صفحهٔ تست، /health، و دانلود /renders/:jobId.
  */
 app.use((req, res, next) => {
   const required = process.env.BEHIX_API_KEY;
@@ -52,32 +60,22 @@ app.use((req, res, next) => {
   res.status(401).json({ error: 'کلید API نامعتبر است (هدر x-api-key)' });
 });
 
-/** ثبت کارهای کامل‌شده برای دانلود؛ هر نمونه فقط کارهای خودش را می‌بیند */
-const jobs = new Map(); // jobId -> { jobDir, outputPath, gcsUri, createdAt }
-const JOB_TTL_MS = 30 * 60 * 1000;
-const MAX_JOBS = 50;
-
-function registerJob(result) {
-  jobs.set(result.jobId, {
-    jobDir: result.jobDir,
-    outputPath: result.outputPath,
-    gcsUri: result.gcsUri,
-    createdAt: Date.now()
+/** ثبت کارهای کامل‌شده در Cloud Storage (GCS) و دیسک تا ری‌استارت Cloud Run وضعیت را گم نکند */
+async function registerJob(result) {
+  await saveJobStatus(result.jobId, {
+    ...result,
+    status: 'completed',
+    phase: 'done',
+    progress: 100,
+    downloadUrl: `/renders/${result.jobId}`,
+    createdAt: new Date().toISOString()
   });
-  // حذف قدیمی‌ها تا دیسک نمونه پر نشود
-  const now = Date.now();
-  for (const [id, job] of jobs) {
-    if (now - job.createdAt > JOB_TTL_MS || jobs.size > MAX_JOBS) {
-      cleanupJobDir(job.jobDir);
-      jobs.delete(id);
-    } else break;
-  }
 }
 
-/** فقط فیلدهای مجاز از بدنهٔ کلاینت عبور می‌کنند (باگ #1، #2، #10) */
+/** فقط فیلدهای مجاز از بدنهٔ کلاینت عبور می‌کنند (outputPath از کلاینت هرگز پذیرفته نمی‌شود) */
 function pickRenderOptions(body = {}) {
-  const { duration, fps, width, height, skeletonPath } = body;
-  return { duration, fps, width, height, skeletonPath };
+  const { duration, fps, width, height, skeletonPath, chunkDurationSec, buildAssets } = body;
+  return { duration, fps, width, height, skeletonPath, chunkDurationSec, buildAssets };
 }
 
 function sendError(res, err, status = 500) {
@@ -93,21 +91,20 @@ app.get('/health', (_req, res) => {
 /** پیش‌نمایش pose از اسکلت موجود */
 app.post('/preview-pose', (req, res) => {
   try {
-    const { animationName = 'idle', time = 0.2 } = req.body || {};
-    const skeleton = loadSkeletonFromFile('examples/nila.skel.json');
+    const { animationName = 'idle', time = 0.2, skeletonPath = 'examples/nila.skel.json' } = req.body || {};
+    const skeleton = loadSkeletonFromFile(String(skeletonPath));
     const result = computePose(skeleton, String(animationName), Number(time) || 0);
-    // quads و pose را حذف می‌کنیم تا پاسخ سبک بماند
     const { quads, pose, ...summary } = result;
     res.json(summary);
   } catch (err) {
-    sendError(res, err);
+    sendError(res, err, 400);
   }
 });
 
 /**
  * رندر ویدیو از کارگردانی آماده
- * body: { directing: {...}, duration?, fps?, width?, height? }
- * پاسخ: { jobId, downloadUrl, gcsUri, ... } — فایل با GET /renders/:jobId
+ * اگر مدت کارگردانی بلند باشد (> ۶۰ ثانیه یا بین ۱۸۰ تا ۳۰۰ ثانیه)، به صورت Job تکهتکه صف می‌شود و فوراً jobId برمی‌گرداند.
+ * برای ویدیوهای کوتاه (≤ ۶۰ ثانیه)، همان‌جا رندر و وضعیت در GCS ذخیره می‌شود.
  */
 app.post('/render', async (req, res) => {
   try {
@@ -115,31 +112,90 @@ app.post('/render', async (req, res) => {
     if (!directing || !Array.isArray(directing.scenes) || !directing.scenes.length) {
       return sendError(res, new Error('directing با فیلد scenes لازم است'), 400);
     }
-    const result = await renderFromDirecting(directing, pickRenderOptions(req.body));
-    registerJob(result);
+
+    const opts = pickRenderOptions(req.body);
+    const requestedDur = Number(opts.duration || directing.durationSec || 0);
+    const isLongform = requestedDur > LIMITS.maxDuration || Boolean(req.body?.asyncJob);
+
+    validateDirecting(directing, {
+      longform: requestedDur >= LONGFORM_MIN_SEC,
+      requireContiguous: requestedDur >= LONGFORM_MIN_SEC
+    });
+
+    if (isLongform) {
+      const queued = await enqueueLongformRenderJob(directing, {
+        ...opts,
+        longform: requestedDur >= LONGFORM_MIN_SEC
+      });
+      return res.status(202).json({
+        jobId: queued.jobId,
+        status: queued.status,
+        statusUrl: `/jobs/${queued.jobId}`,
+        downloadUrl: queued.downloadUrl || null,
+        directing
+      });
+    }
+
+    const result = await renderFromDirecting(directing, opts);
+    await registerJob(result);
     const { outputPath, jobDir, ...publicResult } = result;
     res.json({ ...publicResult, downloadUrl: `/renders/${result.jobId}` });
   } catch (err) {
-    sendError(res, err);
+    const isClientErr = /معتبر نیست|سقف|نامعتبر|خالی|تکراری|پیدا نشد|خارج از ریشه|مطلق/.test(String(err?.message || ''));
+    sendError(res, err, isClientErr ? 400 : 500);
   }
 });
 
 /**
- * مسیر کامل با Gemini / Vertex AI
- * body: { scenario: "متن سناریو", options?: { duration, fps, width, height } }
+ * مسیر کامل با Gemini / Vertex AI:
+ *  - برای فیلم بلند (۱۸۰ تا ۳۰۰ ثانیه، که حالت پیش‌فرض محصول است یا زمانی که duration > 60 باشد):
+ *    فقط کارگردانی را با prepareScenarioDirecting آماده و اعتبارسنجی می‌کند، Job تکهتکه را در پس‌زمینه/Cloud Run Job ثبت می‌کند
+ *    و فوراً `{ jobId, status: 'queued', statusUrl, downloadUrl: null, directing }` برمی‌گرداند (داخل همان درخواست HTTP تا آخر رندر نمی‌کند).
+ *  - برای کلیپ کوتاه (مثلاً وقتی کاربر در پنل تست duration <= 60 داده و asyncJob نخواسته):
+ *    کلیپ کوتاه را رندر کرده و برمی‌گرداند.
  */
 app.post('/render-from-scenario', async (req, res) => {
   try {
     const scenario = req.body?.scenario;
-    if (!scenario) return sendError(res, new Error('scenario لازم است'), 400);
+    if (!scenario || typeof scenario !== 'string' || !scenario.trim()) {
+      return sendError(res, new Error('scenario لازم است'), 400);
+    }
 
-    const directing = await generateDirecting(String(scenario));
-    const result = await renderFromDirecting(directing, pickRenderOptions(req.body?.options || {}));
-    registerJob(result);
+    const rawOpts = pickRenderOptions(req.body?.options || req.body || {});
+    const explicitDur = Number(rawOpts.duration);
+    const isLongform = !Number.isFinite(explicitDur) || explicitDur > LIMITS.maxDuration || Boolean(req.body?.longform);
+    const targetDuration = isLongform
+      ? (Number.isFinite(explicitDur) && explicitDur >= LONGFORM_MIN_SEC ? explicitDur : LONGFORM_MIN_SEC)
+      : explicitDur;
+
+    const { directing } = await prepareScenarioDirecting(String(scenario), {
+      durationSec: targetDuration,
+      longform: isLongform,
+      buildAssets: !isLongform && !req.body?.asyncJob
+    });
+
+    if (isLongform || req.body?.asyncJob) {
+      const queued = await enqueueLongformRenderJob(directing, {
+        ...rawOpts,
+        duration: directing.durationSec,
+        longform: isLongform
+      });
+      return res.status(202).json({
+        jobId: queued.jobId,
+        status: queued.status,
+        statusUrl: `/jobs/${queued.jobId}`,
+        downloadUrl: queued.downloadUrl || null,
+        directing
+      });
+    }
+
+    const result = await renderFromDirecting(directing, rawOpts);
+    await registerJob(result);
     const { outputPath, jobDir, ...publicResult } = result;
     res.json({ ...publicResult, downloadUrl: `/renders/${result.jobId}`, directing });
   } catch (err) {
-    sendError(res, err);
+    const isClientErr = /معتبر نیست|سقف|نامعتبر|خالی|تکراری|مطلق/.test(String(err?.message || ''));
+    sendError(res, err, isClientErr ? 400 : 500);
   }
 });
 
@@ -153,7 +209,7 @@ app.post('/render-demo', async (_req, res) => {
       width: 480,
       height: 270
     });
-    registerJob(result);
+    await registerJob(result);
     const { outputPath, jobDir, ...publicResult } = result;
     res.json({ ...publicResult, downloadUrl: `/renders/${result.jobId}` });
   } catch (err) {
@@ -161,16 +217,60 @@ app.post('/render-demo', async (_req, res) => {
   }
 });
 
-/** دانلود MP4 یک کار کامل‌شده (جایگزین امن outputPath کلاینتی) */
-app.get('/renders/:jobId', (req, res) => {
-  const job = jobs.get(req.params.jobId);
-  if (!job || !job.outputPath || !existsSync(job.outputPath)) {
-    return sendError(res, new Error('کار پیدا نشد یا منقضی شده'), 404);
+/** مشاهدهٔ وضعیت Job (از GCS یا دیسک محلی) همراه با پیشرفت قطعات و هشدارها یا علت خطا */
+app.get('/jobs/:jobId', async (req, res) => {
+  try {
+    const job = await loadJobStatus(req.params.jobId);
+    if (!job) {
+      return sendError(res, new Error('کار پیدا نشد'), 404);
+    }
+    const { outputPath, jobDir, ...publicState } = job;
+    res.json(publicState);
+  } catch (err) {
+    sendError(res, err);
   }
-  res.download(job.outputPath, 'film.mp4');
 });
 
-const port = Number(process.env.PORT) || 8080;
-app.listen(port, () => {
-  console.log(`BEHIX Pro Engine listening on ${port}`);
+/** دانلود MP4 یک کار کامل‌شده (اگر کار failed باشد، کد 409 همراه با علت خطا برمی‌گرداند و لینک دانلود موفق نمی‌دهد) */
+app.get('/renders/:jobId', async (req, res) => {
+  try {
+    const job = await loadJobStatus(req.params.jobId);
+    if (!job) {
+      return sendError(res, new Error('کار پیدا نشد یا منقضی شده'), 404);
+    }
+    if (job.status === 'failed') {
+      return res.status(409).json({
+        jobId: job.jobId,
+        status: 'failed',
+        phase: job.phase,
+        error: job.error || 'رندر کار با خطا متوقف شد',
+        warnings: job.warnings || []
+      });
+    }
+    if (job.status && job.status !== 'completed') {
+      return res.status(202).json({
+        jobId: job.jobId,
+        status: job.status,
+        phase: job.phase,
+        progress: job.progress,
+        warnings: job.warnings || []
+      });
+    }
+    const localFile = await ensureLocalOutputFromGcs(job);
+    if (!localFile || !existsSync(localFile)) {
+      return sendError(res, new Error('فایل خروجی کار پیدا نشد'), 404);
+    }
+    res.download(localFile, 'film.mp4');
+  } catch (err) {
+    sendError(res, err);
+  }
 });
+
+const invokedDirectly = process.argv[1] &&
+  import.meta.url === pathToFileURL(resolve(process.argv[1])).href;
+if (invokedDirectly) {
+  const port = Number(process.env.PORT) || 8080;
+  app.listen(port, () => {
+    console.log(`BEHIX Pro Engine listening on ${port}`);
+  });
+}
