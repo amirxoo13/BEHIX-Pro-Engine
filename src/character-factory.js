@@ -734,6 +734,7 @@ export function packImagesIntoAtlas(namedImages, pageName = 'atlas.png') {
  * و آپلود اختیاری دارایی‌ها به GCS در صورت تنظیم بودن OUTPUT_BUCKET.
  */
 export async function buildCharacterRig(characterSpec, options = {}) {
+  const variantIndex = Number.isFinite(options.variantIndex) ? options.variantIndex : 0;
   const charId = sanitizeId(characterSpec?.id || characterSpec?.name || 'char');
   const charName = String(characterSpec?.name || charId);
   const baseAssetsDir = options.assetsRoot
@@ -827,6 +828,17 @@ export async function buildCharacterRig(characterSpec, options = {}) {
     // ۳) سنتز لایهٔ PNG با کانال آلفا روی CPU
     if (!imgData) {
       imgData = synthesizeLayerRgba(charId, layer.name, layer.role, layout.w, layout.h);
+      // رنگ‌بندی پایهٔ سنتز بر اساس hash است و برای دو کاراکتر می‌تواند تصادفاً یکی دربیاید.
+      // چرخش فام با زاویهٔ طلایی روی لباس، تمایز بین کاراکترها را تضمین می‌کند.
+      if (variantIndex > 0 && CLOTH_ROLES.has(layer.role)) {
+        const hueShift = (variantIndex * 137.5) % 360;
+        const px = imgData.pixels;
+        for (let i = 0; i < imgData.width * imgData.height; i++) {
+          if (px[i * 4 + 3] === 0) continue;
+          const [r, g, b] = rotateHue(px[i * 4], px[i * 4 + 1], px[i * 4 + 2], hueShift, 0.5);
+          px[i * 4] = r; px[i * 4 + 1] = g; px[i * 4 + 2] = b;
+        }
+      }
       layerFit.set(layer.name, { attW: layout.w, attH: layout.h });
     }
 
@@ -1078,6 +1090,131 @@ ${scenario}`;
 /**
  * ساخت و ریگ کردن تمامی کاراکترها و پس‌زمینه‌های موجود در یک کارگردانی (directing)
  */
+/**
+ * سقف کاراکترهایی که ریگ کامل و اختصاصی می‌گیرند (هر کدام ۱۶ تصویر تولیدی).
+ * بقیهٔ کاراکترها از روی ریگ یکی از همین‌ها مشتق می‌شوند و هیچ تصویری مصرف نمی‌کنند.
+ */
+export const MAX_RIGGED_CHARACTERS = Math.max(
+  1,
+  Number(process.env.BEHIX_MAX_RIGGED || 4) || 4
+);
+
+/**
+ * رتبه‌بندی کاراکترها برای انتخاب «نقش‌های اصلی».
+ * کاراکتری که دیالوگ دارد مهم‌تر از کاراکتری است که فقط در صحنه ایستاده.
+ */
+function rankCharactersByImportance(directing) {
+  const score = new Map();
+  for (const ch of directing?.characters || []) score.set(ch.id, 0);
+
+  for (const scene of directing?.scenes || []) {
+    for (const sc of scene.characters || []) {
+      if (score.has(sc.id)) score.set(sc.id, score.get(sc.id) + 1);
+    }
+    for (const line of scene.lines || []) {
+      if (score.has(line.characterId)) score.set(line.characterId, score.get(line.characterId) + 100);
+    }
+  }
+
+  return [...(directing?.characters || [])]
+    .map((ch, idx) => ({ ch, idx, score: score.get(ch.id) || 0 }))
+    .sort((a, b) => (b.score - a.score) || (a.idx - b.idx));
+}
+
+/**
+ * ساخت کاراکتر جدید از روی ریگ یک کاراکتر موجود، با تغییر رنگ لباس و پوست.
+ *
+ * چرا لازم است: هر ریگ کامل ۱۶ تصویر از مدل می‌خواهد. برای صحنه‌ای با ۱۲ بازیکن یعنی ۱۹۲ تصویر،
+ * که به سقف سهمیهٔ مدل تصویر می‌خورد و نتیجه‌اش لایه‌های ناقص و کاراکتر خراب است.
+ * بازیکنان فرعی از روی ریگ یک نقش اصلی ساخته می‌شوند: هیچ تصویری مصرف نمی‌شود و بدنشان کامل است.
+ */
+/** نقش‌هایی که لباس‌اند و باید رنگشان واقعاً عوض شود (برخلاف پوست و صورت) */
+const CLOTH_ROLES = new Set(['torso', 'pelvis', 'thigh', 'shin', 'foot', 'upperarm', 'forearm', 'hair']);
+
+/**
+ * چرخش فام رنگ یک پیکسل به اندازهٔ degrees درجه، با حفظ اشباع و روشنایی.
+ * برخلاف ضرب ساده در یک عدد، این کار رنگ را واقعاً عوض می‌کند و تیرگی/روشنی را خراب نمی‌کند.
+ */
+function rotateHue(r, g, b, degrees, minSaturation = 0) {
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  const d = max - min;
+  if (d === 0 && minSaturation <= 0) return [r, g, b]; // خاکستری خالص فام ندارد
+
+  let h;
+  if (d === 0) h = 0;
+  else if (max === r) h = ((g - b) / d) % 6;
+  else if (max === g) h = (b - r) / d + 2;
+  else h = (r - g) / d + 4;
+  h = (h * 60 + degrees) % 360;
+  if (h < 0) h += 360;
+
+  // کف اشباع: چرخش فام روی رنگ کم‌اشباع عملاً دیده نمی‌شود، پس دو بازیکن هم‌رنگ می‌مانند.
+  // بالا بردن اشباع تا یک کف مشخص باعث می‌شود رنگ لباس واقعاً متمایز شود.
+  const s = Math.max(max === 0 ? 0 : d / max, minSaturation);
+  const v = max;
+  const c = v * s;
+  const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+  const m = v - c;
+  let rgb;
+  if (h < 60) rgb = [c, x, 0];
+  else if (h < 120) rgb = [x, c, 0];
+  else if (h < 180) rgb = [0, c, x];
+  else if (h < 240) rgb = [0, x, c];
+  else if (h < 300) rgb = [x, 0, c];
+  else rgb = [c, 0, x];
+  return [
+    Math.round(Math.min(255, Math.max(0, rgb[0] + m))),
+    Math.round(Math.min(255, Math.max(0, rgb[1] + m))),
+    Math.round(Math.min(255, Math.max(0, rgb[2] + m)))
+  ];
+}
+
+export async function deriveCharacterFromRig(sourceBuilt, targetSpec, options = {}) {
+  const variantIndex = Number.isFinite(options.variantIndex) ? options.variantIndex : 1;
+  const targetId = sanitizeId(targetSpec?.id || targetSpec?.name || 'char');
+  const baseAssetsDir = options.assetsRoot
+    ? resolveSafeAssetPath(options.assetsRoot, 'assets', options.allowedRoot || null)
+    : join(PROJECT_ROOT, 'assets');
+  const targetLayersDir = join(baseAssetsDir, targetId, 'layers');
+  mkdirSync(targetLayersDir, { recursive: true });
+
+  const derivedLayers = [];
+  for (const srcLayer of sourceBuilt.layers) {
+    const srcFull = resolveSafeAssetPath(srcLayer.file, srcLayer.file, options.allowedRoot || null);
+    if (!existsSync(srcFull)) continue;
+
+    const img = decodePngBuffer(readFileSync(srcFull));
+    const name = basename(srcLayer.file, '.png');
+
+    // چرخش فام با زاویهٔ طلایی (۱۳۷.۵ درجه) به ازای هر کاراکتر مشتق‌شده: برخلاف hash تصادفی،
+    // این کار تمایز رنگ را تضمین می‌کند و دو بازیکن هیچ‌وقت هم‌رنگ درنمی‌آیند.
+    // صورت و پوست تقریباً دست‌نخورده می‌ماند تا آدم‌ها طبیعی بمانند؛ فقط لباس رنگ عوض می‌کند.
+    const isCloth = CLOTH_ROLES.has(srcLayer.role);
+    const hueShift = isCloth ? (variantIndex * 137.5) % 360 : ((variantIndex * 137.5) % 360) * 0.06;
+
+    const px = new Uint8Array(img.pixels);
+    for (let i = 0; i < img.width * img.height; i++) {
+      if (px[i * 4 + 3] === 0) continue; // پیکسل شفاف دست‌نخورده می‌ماند
+      const [r, g, b] = rotateHue(px[i * 4], px[i * 4 + 1], px[i * 4 + 2], hueShift, isCloth ? 0.5 : 0);
+      px[i * 4] = r; px[i * 4 + 1] = g; px[i * 4 + 2] = b;
+    }
+
+    const outFile = `assets/${targetId}/layers/${name}.png`;
+    writeFileSync(join(targetLayersDir, `${name}.png`), encodePngBuffer(img.width, img.height, px));
+    derivedLayers.push({ name, file: outFile, role: srcLayer.role, side: srcLayer.side });
+  }
+
+  if (!derivedLayers.length) {
+    throw new Error(`مشتق‌سازی کاراکتر "${targetId}" ناموفق بود: لایه‌ای از "${sourceBuilt.id}" پیدا نشد`);
+  }
+
+  // ریگ از همان مسیر همیشگی ساخته می‌شود، فقط بدون هیچ فراخوانی مدل تصویر
+  return buildCharacterRig(
+    { ...targetSpec, id: targetId, layers: derivedLayers },
+    { ...options, useVertexImage: false, forceRegenerate: false }
+  );
+}
+
 export async function buildAllDirectingAssets(directing, options = {}) {
   const characters = directing?.characters || [];
   if (characters.length > MAX_CHARACTERS) {
@@ -1087,18 +1224,58 @@ export async function buildAllDirectingAssets(directing, options = {}) {
   const characterReports = [];
   const allWarnings = [];
 
-  for (let i = 0; i < characters.length; i++) {
-    const ch = characters[i];
-    const built = await buildCharacterRig(ch, options);
+  // نقش‌های اصلی ریگ کامل می‌گیرند؛ بقیه از روی همان‌ها مشتق می‌شوند تا سهمیهٔ تصویر تمام نشود
+  const maxRigged = Math.max(1, Number(options.maxRiggedCharacters) || MAX_RIGGED_CHARACTERS);
+  const ranked = rankCharactersByImportance(directing);
+  const heroIds = new Set(ranked.slice(0, maxRigged).map(r => r.ch.id));
+  const builtById = new Map();
+  // شمارندهٔ مشترک بین نقش‌های اصلی و مشتق‌شده‌ها: اگر جدا باشند، هر دو گروه زاویهٔ یکسان
+  // می‌گیرند و یک نقش اصلی با یک کاراکتر مشتق‌شده هم‌رنگ درمی‌آید.
+  let variantCounter = 0;
+
+  if (characters.length > maxRigged) {
+    allWarnings.push(
+      `${characters.length} کاراکتر در سناریو هست؛ ${maxRigged} نقش اصلی ریگ اختصاصی می‌گیرند و ` +
+      `${characters.length - maxRigged} کاراکتر دیگر از روی آن‌ها با تغییر رنگ ساخته می‌شوند (برای نماندن در سقف سهمیهٔ تصویر)`
+    );
+  }
+
+  // مرحلهٔ ۱: نقش‌های اصلی با ریگ کامل
+  for (const ch of characters) {
+    if (!heroIds.has(ch.id)) continue;
+    const built = await buildCharacterRig(ch, { ...options, variantIndex: variantCounter++ });
+    builtById.set(ch.id, built);
+    if (built.rigReport.warnings.length) allWarnings.push(...built.rigReport.warnings);
+  }
+
+  // مرحلهٔ ۲: بقیه، مشتق‌شده از نقش‌های اصلی به‌صورت چرخشی
+  const heroBuilts = [...builtById.values()];
+  let heroCursor = 0;
+  for (const ch of characters) {
+    if (builtById.has(ch.id)) continue;
+    const source = heroBuilts[heroCursor++ % heroBuilts.length];
+    try {
+      const built = await deriveCharacterFromRig(source, ch, { ...options, variantIndex: variantCounter++ });
+      builtById.set(ch.id, built);
+      if (built.rigReport.warnings.length) allWarnings.push(...built.rigReport.warnings);
+    } catch (err) {
+      allWarnings.push(`مشتق‌سازی کاراکتر "${ch.id}" ناموفق بود (${err.message})؛ ریگ کامل ساخته می‌شود`);
+      const built = await buildCharacterRig(ch, options);
+      builtById.set(ch.id, built);
+      if (built.rigReport.warnings.length) allWarnings.push(...built.rigReport.warnings);
+    }
+  }
+
+  // مرحلهٔ ۳: نوشتن مسیر دارایی‌ها روی سند کارگردانی با همان ترتیب اصلی
+  for (const ch of characters) {
+    const built = builtById.get(ch.id);
+    if (!built) continue;
     ch.id = built.id;
     ch.name = built.name;
     ch.skeletonPath = built.skeletonPath;
     ch.atlasPath = built.atlasPath;
     ch.layers = built.layers;
     characterReports.push(built);
-    if (built.rigReport.warnings.length) {
-      allWarnings.push(...built.rigReport.warnings);
-    }
   }
 
   for (const scene of directing?.scenes || []) {
