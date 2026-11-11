@@ -24,6 +24,7 @@ import {
   writeAtlas,
   VISEMES
 } from '../engine/rigby-core/index.js';
+import { buildBodySheetPrompt, sliceBodySheet } from './body-sheet.js';
 import { PROJECT_ROOT, loadSkeletonFromFile, resolveSafeAssetPath, clearSkeletonCache } from './rigby-adapter.js';
 import { decodePngBuffer, encodePngBuffer, loadAtlas, saveRgbaFile, clearAtlasCache } from './software-renderer.js';
 import { callVertexAi, callGeminiApi, parseModelJson, MAX_CHARACTERS } from './gemini-directing.js';
@@ -863,6 +864,33 @@ export async function buildCharacterRig(characterSpec, options = {}) {
   const layerFit = new Map();    // imageName -> { attW, attH } اندازهٔ اتصال با نسبت ابعاد حفظ‌شده
   const useVertexImages = Boolean(options.useVertexImage !== false && options.useVertexImagen !== false && process.env.VERTEX_AI_PROJECT);
 
+  // یک تصویر کامل بدن ساخته و در کد به قطعات بریده می‌شود، به‌جای تولید جداگانهٔ هر عضو.
+  // تولید جداگانه قابل اتکا نبود: هر تصویر بی‌خبر از بقیه ساخته می‌شد، پس اعضا هم‌دیگر را
+  // تکرار می‌کردند (شورت هم در لگن و هم در ران)، بعضی عضو اشتباهی بودند (بازو = تکه‌ای از
+  // پیراهن)، و رنگ و سبک و مقیاسشان با هم نمی‌خواند. از یک نقاشی، همهٔ قطعات ذاتاً هماهنگ‌اند
+  // و به‌جای ۱۶ فراخوانی مدل فقط یک فراخوانی لازم است.
+  const sheetParts = new Map();
+  const needsGeneration = validLayers.some(l => {
+    const candidate = resolveSafeAssetPath(l.file, `assets/${charId}/layers/${l.name}.png`, options.allowedRoot || null);
+    return options.forceRegenerate || !existsSync(candidate);
+  });
+
+  if (useVertexImages && needsGeneration && options.useBodySheet !== false) {
+    try {
+      const sheetPrompt = buildBodySheetPrompt(charName, characterSpec?.appearance);
+      const sheetBuf = await generateStaticPngWithVertex(sheetPrompt);
+      const sliced = sliceBodySheet(decodePngBuffer(sheetBuf));
+      if (!sliced.ok) {
+        warnings.push(`برش تصویر بدن کاراکتر "${charId}" ناموفق بود: ${sliced.error}؛ هر عضو جداگانه ساخته می‌شود`);
+      } else {
+        for (const [name, img] of sliced.parts) sheetParts.set(name, img);
+        for (const w of sliced.warnings) warnings.push(`تصویر بدن کاراکتر "${charId}": ${w}`);
+      }
+    } catch (err) {
+      warnings.push(`ساخت تصویر کامل بدن کاراکتر "${charId}" ناموفق بود (${err.message})؛ هر عضو جداگانه ساخته می‌شود`);
+    }
+  }
+
   for (const layer of validLayers) {
     const layout = ROLE_WORLD_LAYOUT[layer.name] || ROLE_WORLD_LAYOUT[layer.role] || { x: 0, y: 1700, w: 200, h: 200 };
     const layerDiskPath = join(layersDir, `${layer.name}.png`);
@@ -887,7 +915,18 @@ export async function buildCharacterRig(characterSpec, options = {}) {
       }
     }
 
-    // ۲) اگر مدل تصویر Vertex فعال است، PNG ثابت لایه را می‌سازیم.
+    // ۲) قطعهٔ بریده‌شده از تصویر کامل بدن، اگر برای این عضو موجود باشد
+    if (!imgData && sheetParts.has(layer.name)) {
+      const prepared = prepareGeneratedLayer(sheetParts.get(layer.name), layout, layer.name);
+      if (prepared.error) {
+        warnings.push(`قطعهٔ "${layer.name}" از تصویر بدن کاراکتر "${charId}" قابل استفاده نبود: ${prepared.error}`);
+      } else {
+        imgData = prepared.img;
+        layerFit.set(layer.name, { attW: prepared.attW, attH: prepared.attH });
+      }
+    }
+
+    // ۳) اگر مدل تصویر Vertex فعال است، PNG ثابت لایه را می‌سازیم.
     // پس‌زمینه را «تختِ سرخابی» می‌خواهیم، نه «شفاف»: مدل آلفای واقعی تولید نمی‌کند و در پاسخ به
     // درخواست شفافیت یک الگوی شطرنجی داخل تصویر نقاشی می‌کند. پس‌زمینهٔ تختِ کروما بعداً در کد
     // به آلفای واقعی تبدیل می‌شود و نتیجه قطعی و قابل‌اتکاست.
@@ -908,7 +947,7 @@ export async function buildCharacterRig(characterSpec, options = {}) {
       }
     }
 
-    // ۳) سنتز لایهٔ PNG با کانال آلفا روی CPU
+    // ۴) سنتز لایهٔ PNG با کانال آلفا روی CPU
     if (!imgData) {
       imgData = synthesizeLayerRgba(charId, layer.name, layer.role, layout.w, layout.h);
       // رنگ‌بندی پایهٔ سنتز بر اساس hash است و برای دو کاراکتر می‌تواند تصادفاً یکی دربیاید.
