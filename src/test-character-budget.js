@@ -10,7 +10,7 @@
 import { rmSync, existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { buildAllDirectingAssets, MAX_RIGGED_CHARACTERS } from './character-factory.js';
-import { PROJECT_ROOT, loadSkeletonFromFile } from './rigby-adapter.js';
+import { PROJECT_ROOT, loadSkeletonFromFile, CharacterInstance } from './rigby-adapter.js';
 import { decodePngBuffer } from './software-renderer.js';
 
 function assert(cond, msg) {
@@ -97,6 +97,33 @@ async function main() {
       existsSync(join(PROJECT_ROOT, ch.atlasPath.replace(/\.atlas$/, '.png'))),
       `اطلس PNG کاراکتر "${ch.id}" نوشته نشد`
     );
+  }
+
+  // هر کاراکتر باید انیمیشن دویدن داشته باشد.
+  // این تست یک خرابی خاموش را می‌گیرد: در مدلِ اسکلت `animations` یک آرایه است، پس افزودن
+  // انیمیشن به‌صورت کلید (animations.run = ...) بی‌هیچ خطایی نادیده گرفته می‌شود و اکشن "run"
+  // در سناریو به idle برمی‌گردد — یعنی بازیکن به‌جای دویدن سرِ جایش می‌ایستد.
+  for (const ch of directing.characters) {
+    const skel = loadSkeletonFromFile(ch.skeletonPath);
+    const names = skel.animations.map(a => a.name);
+    assert(names.includes('run'), `کاراکتر "${ch.id}" انیمیشن دویدن ندارد (${names.join(', ')})`);
+    const run = skel.animations.find(a => a.name === 'run');
+    assert(run.duration > 0, `مدت انیمیشن دویدن "${ch.id}" صفر است`);
+  }
+  console.log('همهٔ کاراکترها انیمیشن دویدن دارند.');
+
+  // چرخهٔ دویدن باید واقعاً pose را عوض کند (نه اینکه فقط اسمش ثبت شده باشد)
+  {
+    const skel = loadSkeletonFromFile(directing.characters[0].skeletonPath);
+    const snap = (t) => {
+      const inst = new CharacterInstance(skel);
+      inst.setAnimation('run', { loop: true, mix: 0 });
+      inst.advance(t);
+      return [...inst.pose.quads(skel)].flatMap(q => q.positions.flat()).map(v => v.toFixed(1)).join(',');
+    };
+    const a = snap(0.0), b = snap(0.15), c = snap(0.3);
+    assert(a !== b && b !== c, 'چرخهٔ دویدن pose را تغییر نمی‌دهد (فریم‌ها یکسان‌اند)');
+    console.log('چرخهٔ دویدن در طول زمان pose را واقعاً تغییر می‌دهد.');
   }
 
   // کاراکترهای مشتق‌شده باید دقیقاً همان ساختار استخوانی نقش اصلی را داشته باشند

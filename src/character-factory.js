@@ -53,42 +53,47 @@ const VALID_ROLE_SET = new Set(PART_ROLES.filter(r => r !== 'extra'));
  * برای قرار دادن لایه‌های تصویر کاراکتر پیش از اجرای autoRig روی CPU.
  */
 const ROLE_WORLD_LAYOUT = {
-  hair_back:  { x: 0,    y: 2410, w: 660, h: 740 },
-  thigh_r:    { x: -90,  y: 1050, w: 230, h: 470 },
-  shin_r:     { x: -110, y: 660,  w: 215, h: 470 },
-  foot_r:     { x: -138, y: 375,  w: 250, h: 195 },
-  thigh_l:    { x: 90,   y: 1050, w: 230, h: 470 },
-  shin_l:     { x: 110,  y: 660,  w: 215, h: 470 },
-  foot_l:     { x: 138,  y: 375,  w: 250, h: 195 },
-  pelvis:     { x: 0,    y: 1325, w: 405, h: 350 },
-  neck:       { x: 0,    y: 2005, w: 106, h: 235 },
-  torso:      { x: 0,    y: 1710, w: 470, h: 505 },
-  ear_r:      { x: -292, y: 2308, w: 86,  h: 144 },
-  ear_l:      { x: 292,  y: 2308, w: 86,  h: 144 },
-  head:       { x: 0,    y: 2340, w: 565, h: 670 },
-  eye_r:      { x: -112, y: 2285, w: 128, h: 128 },
-  pupil_r:    { x: -108, y: 2284, w: 90,  h: 90  },
-  eye_l:      { x: 112,  y: 2285, w: 128, h: 128 },
-  pupil_l:    { x: 108,  y: 2284, w: 90,  h: 90  },
-  brow_r:     { x: -113, y: 2425, w: 144, h: 38  },
-  brow_l:     { x: 113,  y: 2425, w: 144, h: 38  },
-  nose:       { x: 2,    y: 2220, w: 52,  h: 64  },
-  mouth:      { x: 0,    y: 2110, w: 110, h: 38  },
-  hair:       { x: 0,    y: 2440, w: 690, h: 680 },
-  upperarm_r: { x: -278, y: 1728, w: 345, h: 400 },
-  forearm_r:  { x: -448, y: 1510, w: 255, h: 270 },
-  hand_r:     { x: -578, y: 1365, w: 155, h: 162 },
-  upperarm_l: { x: 278,  y: 1728, w: 345, h: 400 },
-  forearm_l:  { x: 448,  y: 1510, w: 255, h: 270 },
-  hand_l:     { x: 578,  y: 1365, w: 155, h: 162 },
-  arm_r:      { x: -360, y: 1610, w: 300, h: 580 },
-  arm_l:      { x: 360,  y: 1610, w: 300, h: 580 },
-  leg_r:      { x: -100, y: 850,  w: 225, h: 860 },
-  leg_l:      { x: 100,  y: 850,  w: 225, h: 860 },
-  tail:       { x: 180,  y: 1250, w: 160, h: 420 },
-  wing_r:     { x: -380, y: 1850, w: 340, h: 460 },
-  wing_l:     { x: 380,  y: 1850, w: 340, h: 460 },
-  jaw:        { x: 0,    y: 2080, w: 220, h: 120 }
+  // چیدمان بر اساس قامت ۲۶۳۰ واحدی طراحی شده و سر حدود ۱۵٪ قد است (نسبت یک ورزشکار سبک کارتونی).
+  // قبلاً سر ۶۷۰ واحد یعنی ۲۸٪ قد بود و از تنه هم پهن‌تر می‌شد.
+  // هر عضو از مفصل بالایی تا مفصل پایینی چیده شده تا بین قطعات سوراخ نیفتد:
+  //   پا ۰..۱۷۰ | ساق ۱۸۰..۸۰۰ | ران ۸۰۰..۱۴۲۰ | لگن ۱۳۳۰..۱۶۵۰
+  //   تنه ۱۶۲۰..۲۱۸۰ | گردن ۲۱۵۵..۲۲۶۵ | سر ۲۲۳۰..۲۶۳۰
+  foot_r:     { x: -118, y: 85,   w: 260, h: 170 },
+  shin_r:     { x: -96,  y: 490,  w: 200, h: 620 },
+  thigh_r:    { x: -82,  y: 1110, w: 225, h: 620 },
+  foot_l:     { x: 118,  y: 85,   w: 260, h: 170 },
+  shin_l:     { x: 96,   y: 490,  w: 200, h: 620 },
+  thigh_l:    { x: 82,   y: 1110, w: 225, h: 620 },
+  pelvis:     { x: 0,    y: 1490, w: 430, h: 320 },
+  torso:      { x: 0,    y: 1900, w: 500, h: 560 },
+  neck:       { x: 0,    y: 2210, w: 130, h: 110 },
+  head:       { x: 0,    y: 2430, w: 360, h: 400 },
+  hair:       { x: 0,    y: 2500, w: 430, h: 420 },
+  hair_back:  { x: 0,    y: 2470, w: 420, h: 450 },
+  ear_r:      { x: -185, y: 2450, w: 70,  h: 120 },
+  ear_l:      { x: 185,  y: 2450, w: 70,  h: 120 },
+  eye_r:      { x: -95,  y: 2470, w: 90,  h: 90  },
+  pupil_r:    { x: -92,  y: 2468, w: 60,  h: 60  },
+  eye_l:      { x: 95,   y: 2470, w: 90,  h: 90  },
+  pupil_l:    { x: 92,   y: 2468, w: 60,  h: 60  },
+  brow_r:     { x: -95,  y: 2540, w: 105, h: 28  },
+  brow_l:     { x: 95,   y: 2540, w: 105, h: 28  },
+  nose:       { x: 2,    y: 2410, w: 45,  h: 55  },
+  mouth:      { x: 0,    y: 2320, w: 150, h: 60  },
+  jaw:        { x: 0,    y: 2280, w: 190, h: 100 },
+  upperarm_r: { x: -310, y: 1870, w: 190, h: 480 },
+  forearm_r:  { x: -340, y: 1430, w: 160, h: 430 },
+  hand_r:     { x: -350, y: 1130, w: 170, h: 230 },
+  upperarm_l: { x: 310,  y: 1870, w: 190, h: 480 },
+  forearm_l:  { x: 340,  y: 1430, w: 160, h: 430 },
+  hand_l:     { x: 350,  y: 1130, w: 170, h: 230 },
+  arm_r:      { x: -325, y: 1640, w: 200, h: 940 },
+  arm_l:      { x: 325,  y: 1640, w: 200, h: 940 },
+  leg_r:      { x: -90,  y: 790,  w: 220, h: 1250 },
+  leg_l:      { x: 90,   y: 790,  w: 220, h: 1250 },
+  tail:       { x: 170,  y: 1350, w: 150, h: 400 },
+  wing_r:     { x: -360, y: 1950, w: 320, h: 440 },
+  wing_l:     { x: 360,  y: 1950, w: 320, h: 440 }
 };
 
 /** فهرست استاندارد لایه‌های یک کاراکتر کامل برای ریگ اتوماتیک */
@@ -336,16 +341,18 @@ export async function generateStaticPngWithVertex(prompt, options = {}) {
  * هر عضو باید دقیقاً یک تکهٔ مجزا و از یک مفصل تا مفصل بعدی باشد.
  */
 const LAYER_ART_BRIEF = {
-  head: 'ONLY the head and face with hair, cut straight across at the base of the neck. No shoulders, no torso.',
-  neck: 'ONLY the neck column, from jaw to collarbone. No head, no shoulders.',
-  torso: 'ONLY the torso/jersey from shoulders down to the waist. No head, no arms, no legs, no shorts.',
-  pelvis: 'ONLY the hips and shorts area, from waist to the top of both thighs. No legs below the shorts, no torso.',
-  upperarm: 'ONLY one single upper arm segment, from shoulder joint to elbow. One limb only. No hand, no forearm, no body.',
-  forearm: 'ONLY one single forearm segment, from elbow to wrist. One limb only. No hand, no upper arm, no body.',
-  hand: 'ONLY one single hand, from wrist to fingertips. One hand only. No arm, no body.',
-  thigh: 'ONLY one single thigh segment, from hip joint to knee. ONE leg only — never a pair of shorts and never two legs. No shin, no foot, no body.',
-  shin: 'ONLY one single lower leg segment, from knee to ankle. ONE leg only. No thigh, no foot, no body.',
-  foot: 'ONLY one single foot in a shoe, from ankle to toe. ONE foot only. No leg, no body.',
+  // سر صورت را دارد ولی «بدون دهان»: دهان لایهٔ جداست تا لب‌خوانی کار کند، و اگر روی سر هم
+  // دهان کشیده شود، از زیر لایهٔ دهان بیرون می‌زند و دو دهان دیده می‌شود.
+  head: 'ONLY the head: face with eyes, eyebrows, nose, ears and hair, cut straight across at the base of the neck. Draw NO mouth and NO lips at all — leave the mouth area as blank skin. No neck, no shoulders, no torso.',
+  neck: 'ONLY the neck column, standing UPRIGHT, jaw end at the TOP of the image and collarbone end at the BOTTOM. No head, no shoulders.',
+  torso: 'ONLY the torso/jersey standing UPRIGHT, shoulders at the TOP of the image and waist at the BOTTOM. No head, no neck, no arms, no legs, no shorts.',
+  pelvis: 'ONLY the hips and shorts, waist at the TOP of the image and the top of both thighs at the BOTTOM. No legs below the shorts, no torso.',
+  upperarm: 'ONLY one single upper arm segment, drawn VERTICALLY: shoulder joint at the TOP of the image, elbow at the BOTTOM. One limb only, straight and upright. No hand, no forearm, no body.',
+  forearm: 'ONLY one single forearm segment, drawn VERTICALLY: elbow at the TOP of the image, wrist at the BOTTOM. One limb only, straight and upright, taller than it is wide. No hand, no upper arm, no body.',
+  hand: 'ONLY one single hand, drawn VERTICALLY: wrist at the TOP of the image, fingertips at the BOTTOM. One hand only. No arm, no body.',
+  thigh: 'ONLY one single thigh segment, drawn VERTICALLY: hip joint at the TOP of the image, knee at the BOTTOM. ONE leg only — never a pair of shorts and never two legs. Straight and upright, taller than it is wide. No shin, no foot, no body.',
+  shin: 'ONLY one single lower leg segment, drawn VERTICALLY: knee at the TOP of the image, ankle at the BOTTOM. ONE leg only, straight and upright, taller than it is wide. No thigh, no foot, no body.',
+  foot: 'ONLY one single foot in a shoe, seen from the side, ankle at the TOP of the image and the sole at the BOTTOM, toes pointing to one side. ONE foot only. No leg, no body.',
   hair: 'ONLY the hair as a separate piece, shaped to sit on top of a head. No face, no body.',
   mouth: 'ONLY a mouth with lips, closed neutral expression, drawn large and centered. No face, no head, no body.',
   eye: 'ONLY one single eye with eyelid and lashes, drawn large and centered. No face, no head.',
@@ -541,7 +548,14 @@ export function prepareGeneratedLayer(imgData, layout, layerName) {
   const cropped = cropToContentBbox(work);
   if (!cropped) return { error: `لایهٔ "${layerName}" پس از حذف پس‌زمینه کاملاً خالی بود` };
 
-  const scale = Math.min(layout.w / cropped.width, layout.h / cropped.height);
+  // طول قطعه با طول بند استخوان تطبیق داده می‌شود (نه برازش داخل کادر با حفظ نسبت).
+  // برازشِ «داخل کادر» قطعه را کوچک‌تر از بندش می‌کرد و بین اعضا سوراخ می‌افتاد: بازو با کادر
+  // ۴۸۰ واحدی فقط ۳۴۰ واحد رسم می‌شد و دست و ساعد جدا از بدن شناور می‌ماندند.
+  // عرض از همان نسبت می‌آید، با سقفی برابر ۱.۸ برابر عرض کادر تا قطعهٔ بدکشیده پهن‌تر از بدن نشود.
+  let scale = layout.h / cropped.height;
+  const maxWidth = layout.w * 1.8;
+  if (cropped.width * scale > maxWidth) scale = maxWidth / cropped.width;
+
   return {
     img: cropped,
     attW: Math.max(1, Math.round(cropped.width * scale)),
@@ -733,6 +747,75 @@ export function packImagesIntoAtlas(namedImages, pageName = 'atlas.png') {
  * ساخت کامل یک کاراکتر (لایه‌های PNG جدا با کانال آلفا + اجرای autoRig روی CPU + انتقال انیمیشن‌ها + ذخیرهٔ اسکلت و اطلس اختصاصی)
  * و آپلود اختیاری دارایی‌ها به GCS در صورت تنظیم بودن OUTPUT_BUCKET.
  */
+/**
+ * ساخت چرخهٔ دویدن به‌صورت رویه‌ای روی استخوان‌های humanoid که autoRig تولید می‌کند.
+ *
+ * چرا رویه‌ای و نه retarget: اسکلت مرجع (nila) انیمیشن دویدن ندارد و فقط idle/wave/promo دارد،
+ * پس اکشن "run" در سناریو تا امروز بی‌صدا به idle برمی‌گشت و بازیکن سرِ جایش می‌ایستاد.
+ *
+ * ساختار یک چرخهٔ کلاسیک دو قدمی: ران‌ها در فاز مخالف جلو و عقب می‌روند، زانو در فاز هوا جمع
+ * می‌شود، دست‌ها برعکس پاها تاب می‌خورند، و لگن دو بار در هر چرخه پایین و بالا می‌رود.
+ * کلید اول و آخر یکسان‌اند تا حلقه بدون پرش بسته شود.
+ */
+function buildRunAnimation(cycleSec = 0.6) {
+  const T = cycleSec;
+  const half = T / 2;
+  const q = T / 4;
+
+  /** یک تایم‌لاین چرخش دو کلیدی متقارن با فاز دلخواه */
+  const swing = (atZero, atHalf) => ({
+    rotate: [
+      { value: atZero },
+      { time: half, value: atHalf },
+      { time: T, value: atZero }
+    ]
+  });
+
+  /** زانو: در نیمهٔ هوا جمع و در تماس با زمین باز می‌شود */
+  const knee = (phase) => ({
+    rotate: [
+      { time: 0, value: phase === 0 ? -18 : -8 },
+      { time: q, value: phase === 0 ? -62 : -30 },
+      { time: half, value: phase === 0 ? -8 : -18 },
+      { time: half + q, value: phase === 0 ? -30 : -62 },
+      { time: T, value: phase === 0 ? -18 : -8 }
+    ]
+  });
+
+  return {
+    bones: {
+      // پاها: فاز مخالف هم
+      thigh_l: swing(32, -26),
+      thigh_r: swing(-26, 32),
+      shin_l: knee(0),
+      shin_r: knee(1),
+      foot_l: swing(10, -6),
+      foot_r: swing(-6, 10),
+
+      // دست‌ها برعکس پاها تاب می‌خورند تا تعادل بدن طبیعی به نظر برسد
+      upperarm_l: swing(-28, 24),
+      upperarm_r: swing(24, -28),
+      forearm_l: { rotate: [{ value: -58 }, { time: half, value: -72 }, { time: T, value: -58 }] },
+      forearm_r: { rotate: [{ value: -72 }, { time: half, value: -58 }, { time: T, value: -72 }] },
+
+      // بالاتنه: چرخش خفیف خلاف جهت لگن و بالا-پایین شدن دو بار در هر چرخه
+      chest: { rotate: [{ value: 3 }, { time: half, value: -3 }, { time: T, value: 3 }] },
+      head: { rotate: [{ value: -2 }, { time: half, value: 2 }, { time: T, value: -2 }] },
+      hip: {
+        rotate: [{ value: -3 }, { time: half, value: 3 }, { time: T, value: -3 }],
+        translate: [
+          { time: 0, y: 0 },
+          { time: q, y: -34 },
+          { time: half, y: 0 },
+          { time: half + q, y: -34 },
+          { time: T, y: 0 }
+        ]
+      }
+    },
+    slots: {}
+  };
+}
+
 export async function buildCharacterRig(characterSpec, options = {}) {
   const variantIndex = Number.isFinite(options.variantIndex) ? options.variantIndex : 0;
   const charId = sanitizeId(characterSpec?.id || characterSpec?.name || 'char');
@@ -750,7 +833,7 @@ export async function buildCharacterRig(characterSpec, options = {}) {
   const inputLayers = ensureCompleteBodyLayers(
     Array.isArray(characterSpec?.layers) && characterSpec.layers.length > 0
       ? characterSpec.layers
-      : defaultCharacterLayers(charId),
+      : [],
     charId
   );
 
@@ -945,6 +1028,19 @@ export async function buildCharacterRig(characterSpec, options = {}) {
   const rgbaFullPath = join(charDir, `${charId}.rgba`);
 
   const { json: skelJson } = writeSkeletonJson(doc);
+
+  // اسکلت مرجع انیمیشن دویدن ندارد، پس چرخهٔ دویدن روی استخوان‌های humanoid ساخته می‌شود.
+  // بدون این، اکشن "run" در سناریو بی‌صدا به idle برمی‌گشت و بازیکن سرِ جایش می‌ایستاد.
+  // تزریق در سطح JSON انجام می‌شود، چون در مدلِ اسکلت `animations` یک آرایه از اشیای Animation
+  // است و افزودن کلید به آن بی‌اثر و بی‌صدا نادیده گرفته می‌شود.
+  const rigBoneNames = new Set((doc.bones || []).map(b => b.name));
+  if (rigBoneNames.has('thigh_l') && rigBoneNames.has('thigh_r')) {
+    skelJson.animations = skelJson.animations || {};
+    skelJson.animations.run = buildRunAnimation();
+  } else {
+    warnings.push(`کاراکتر "${charId}" استخوان ران ندارد، پس انیمیشن دویدن ساخته نشد`);
+  }
+
   writeFileSync(skelFullPath, JSON.stringify(skelJson, null, 2), 'utf8');
   writeFileSync(atlasFullPath, packed.atlasText, 'utf8');
   writeFileSync(pngFullPath, encodePngBuffer(packed.pageWidth, packed.pageHeight, packed.pagePixels));
