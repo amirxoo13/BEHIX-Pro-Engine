@@ -8,7 +8,7 @@
  * ریگ انتظار دارد و در روش قبلی رعایت نمی‌شد.
  */
 
-import { sliceBodySheet, measureFigure, rotate90 } from './body-sheet.js';
+import { sliceBodySheet, measureFigure, rotate90, deriveWorldLayout, TARGET_FIGURE_HEIGHT } from './body-sheet.js';
 
 const BG = [255, 0, 255];
 const C = {
@@ -181,6 +181,46 @@ function main() {
   assert(back.width === probe.width && back.height === probe.height, 'چرخش رفت و برگشت ابعاد را حفظ نکرد');
   for (let i = 0; i < 24; i++) assert(back.pixels[i] === probe.pixels[i], 'چرخش رفت و برگشت پیکسل‌ها را تغییر داد');
   console.log('چرخش ۹۰ درجه برگشت‌پذیر است.');
+
+  // چیدمان جهانی باید از خودِ نقاشی ساخته شود و آناتومی درستی بدهد
+  const layout = deriveWorldLayout(res);
+  const need = ['head', 'torso', 'pelvis', 'thigh_l', 'shin_l', 'foot_l', 'upperarm_l', 'forearm_l', 'hand_l'];
+  for (const n of need) assert(layout[n], `چیدمان "${n}" ساخته نشد`);
+
+  // ترتیب عمودی بدن از بالا به پایین
+  const order = ['head', 'torso', 'pelvis', 'thigh_l', 'shin_l', 'foot_l'];
+  for (let i = 1; i < order.length; i++) {
+    assert(layout[order[i]].y < layout[order[i - 1]].y,
+      `"${order[i]}" باید پایین‌تر از "${order[i - 1]}" باشد (${layout[order[i]].y} در برابر ${layout[order[i - 1]].y})`);
+  }
+  console.log('ترتیب عمودی اعضا از سر تا پا درست است.');
+
+  // زنجیرهٔ دست باید از شانه به پایین و بدون فاصله چیده شود
+  const armChain = ['upperarm_l', 'forearm_l', 'hand_l'];
+  for (let i = 1; i < armChain.length; i++) {
+    const prev = layout[armChain[i - 1]], cur = layout[armChain[i]];
+    assert(cur.y < prev.y, `"${armChain[i]}" باید پایین‌تر از "${armChain[i - 1]}" باشد`);
+    const gap = (prev.y - prev.h / 2) - (cur.y + cur.h / 2);
+    assert(Math.abs(gap) < TARGET_FIGURE_HEIGHT * 0.02,
+      `بین "${armChain[i - 1]}" و "${armChain[i]}" فاصله افتاده (${gap.toFixed(0)} واحد)`);
+  }
+  console.log('زنجیرهٔ دست از شانه به پایین و بدون فاصله چیده شده است.');
+
+  // دست چپ و راست باید دو طرف بدن باشند و روی تنه هم‌پوشانی کنند، نه معلق در هوا
+  assert(layout.upperarm_l.x > 0 && layout.upperarm_r.x < 0, 'بازوها دو طرف بدن نیستند');
+  assert(Math.abs(layout.upperarm_l.x) < layout.torso.w,
+    `بازو خیلی دور از تنه است (x=${layout.upperarm_l.x}، عرض تنه ${layout.torso.w})`);
+  console.log('بازوها کنار تنه‌اند و از بدن جدا نیفتاده‌اند.');
+
+  // هیچ قطعه‌ای نباید بی‌تناسب کشیده شود؛ نسبت ابعاد چیدمان باید به نسبت خود برش نزدیک بماند
+  for (const [name, rect] of res.rects) {
+    if (!layout[name]) continue;
+    const srcRatio = (rect.x1 - rect.x0) / (rect.y1 - rect.y0);
+    const outRatio = layout[name].w / layout[name].h;
+    assert(Math.abs(srcRatio - outRatio) / srcRatio < 0.05,
+      `قطعهٔ "${name}" بدشکل کشیده شده: نسبت ${srcRatio.toFixed(2)} به ${outRatio.toFixed(2)}`);
+  }
+  console.log('هیچ قطعه‌ای بی‌تناسب کشیده نشده (شورت دیگر دامن نمی‌شود).');
 
   console.log('=== پایان تست برش تصویر بدن ===');
 }

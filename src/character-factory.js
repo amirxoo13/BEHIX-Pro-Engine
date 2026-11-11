@@ -24,7 +24,7 @@ import {
   writeAtlas,
   VISEMES
 } from '../engine/rigby-core/index.js';
-import { buildBodySheetPrompt, sliceBodySheet } from './body-sheet.js';
+import { buildBodySheetPrompt, sliceBodySheet, deriveWorldLayout } from './body-sheet.js';
 import { PROJECT_ROOT, loadSkeletonFromFile, resolveSafeAssetPath, clearSkeletonCache } from './rigby-adapter.js';
 import { decodePngBuffer, encodePngBuffer, loadAtlas, saveRgbaFile, clearAtlasCache } from './software-renderer.js';
 import { callVertexAi, callGeminiApi, parseModelJson, MAX_CHARACTERS } from './gemini-directing.js';
@@ -870,6 +870,7 @@ export async function buildCharacterRig(characterSpec, options = {}) {
   // پیراهن)، و رنگ و سبک و مقیاسشان با هم نمی‌خواند. از یک نقاشی، همهٔ قطعات ذاتاً هماهنگ‌اند
   // و به‌جای ۱۶ فراخوانی مدل فقط یک فراخوانی لازم است.
   const sheetParts = new Map();
+  let sheetLayout = null; // چیدمان استخراج‌شده از خود نقاشی، دقیق‌تر از جدول ثابت
   const needsGeneration = validLayers.some(l => {
     const candidate = resolveSafeAssetPath(l.file, `assets/${charId}/layers/${l.name}.png`, options.allowedRoot || null);
     return options.forceRegenerate || !existsSync(candidate);
@@ -885,6 +886,12 @@ export async function buildCharacterRig(characterSpec, options = {}) {
       } else {
         for (const [name, img] of sliced.parts) sheetParts.set(name, img);
         for (const w of sliced.warnings) warnings.push(`تصویر بدن کاراکتر "${charId}": ${w}`);
+        // چیدمان از جای واقعی هر عضو در همان نقاشی ساخته می‌شود، نه از جدول ثابت
+        try {
+          sheetLayout = deriveWorldLayout(sliced);
+        } catch (err) {
+          warnings.push(`استخراج چیدمان از تصویر بدن کاراکتر "${charId}" ناموفق بود (${err.message})؛ جدول پیش‌فرض استفاده می‌شود`);
+        }
       }
     } catch (err) {
       warnings.push(`ساخت تصویر کامل بدن کاراکتر "${charId}" ناموفق بود (${err.message})؛ هر عضو جداگانه ساخته می‌شود`);
@@ -892,7 +899,9 @@ export async function buildCharacterRig(characterSpec, options = {}) {
   }
 
   for (const layer of validLayers) {
-    const layout = ROLE_WORLD_LAYOUT[layer.name] || ROLE_WORLD_LAYOUT[layer.role] || { x: 0, y: 1700, w: 200, h: 200 };
+    const layout = (sheetLayout && sheetLayout[layer.name])
+      || ROLE_WORLD_LAYOUT[layer.name] || ROLE_WORLD_LAYOUT[layer.role]
+      || { x: 0, y: 1700, w: 200, h: 200 };
     const layerDiskPath = join(layersDir, `${layer.name}.png`);
 
     let imgData = null;
@@ -917,12 +926,14 @@ export async function buildCharacterRig(characterSpec, options = {}) {
 
     // ۲) قطعهٔ بریده‌شده از تصویر کامل بدن، اگر برای این عضو موجود باشد
     if (!imgData && sheetParts.has(layer.name)) {
-      const prepared = prepareGeneratedLayer(sheetParts.get(layer.name), layout, layer.name);
-      if (prepared.error) {
-        warnings.push(`قطعهٔ "${layer.name}" از تصویر بدن کاراکتر "${charId}" قابل استفاده نبود: ${prepared.error}`);
+      const cropped = cropToContentBbox(sheetParts.get(layer.name));
+      if (!cropped) {
+        warnings.push(`قطعهٔ "${layer.name}" از تصویر بدن کاراکتر "${charId}" خالی بود`);
       } else {
-        imgData = prepared.img;
-        layerFit.set(layer.name, { attW: prepared.attW, attH: prepared.attH });
+        imgData = cropped;
+        // اندازهٔ اتصال مستقیماً از چیدمان استخراج‌شده می‌آید و قطعه کش نمی‌آید:
+        // کش آمدن تا طول بند بود که شورت ۱۹۰×۱۱۳ را به دامن تبدیل می‌کرد.
+        layerFit.set(layer.name, { attW: layout.w, attH: layout.h });
       }
     }
 

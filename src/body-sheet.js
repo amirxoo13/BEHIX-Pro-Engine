@@ -133,6 +133,27 @@ export function measureFigure(img) {
   };
 }
 
+/**
+ * یافتن کادر محتوای غیرشفاف داخل یک برش، به مختصات همان برش.
+ * برای این لازم است که بدانیم قطعه دقیقاً کجای شکل بوده تا چیدمان از روی خود نقاشی ساخته شود.
+ */
+function contentBoxWithin(img) {
+  const { width: w, height: h, pixels } = img;
+  let minX = w, minY = h, maxX = -1, maxY = -1;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      if (pixels[(y * w + x) * 4 + 3] > 24) {
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+    }
+  }
+  if (maxX < minX || maxY < minY) return null;
+  return { x0: minX, y0: minY, x1: maxX + 1, y1: maxY + 1 };
+}
+
 /** برش یک مستطیل از تصویر، با محدود کردن به مرزها */
 function cutRect(img, x0, y0, x1, y1) {
   const { width: w, height: h, pixels } = img;
@@ -195,18 +216,41 @@ export function sliceBodySheet(sheet, options = {}) {
   const yAnkle = H * L.ankleRatio;
 
   const parts = new Map();
-  const put = (name, img) => { if (img && img.width > 1 && img.height > 1) parts.set(name, img); };
+  const rects = new Map(); // نام قطعه -> کادر واقعی محتوا در مختصات شکل بریده‌شده
+  /**
+   * ثبت یک قطعه به‌همراه جای واقعی‌اش در نقاشی.
+   * offX/offY مختصات گوشهٔ برش در شکل است تا کادر محتوا به مختصات شکل برگردانده شود.
+   */
+  const put = (name, img, offX, offY) => {
+    if (!img || img.width <= 1 || img.height <= 1) return;
+    parts.set(name, img);
+    if (Number.isFinite(offX) && Number.isFinite(offY)) {
+      const box = contentBoxWithin(img);
+      if (box) {
+        rects.set(name, {
+          x0: offX + box.x0, y0: offY + box.y0,
+          x1: offX + box.x1, y1: offY + box.y1
+        });
+      }
+    }
+  };
 
   // تنه و سر: نوارهای افقی از ستون بدن، با کمی هم‌پوشانی
   const bodyPad = Math.round((m.bodyRight - m.bodyLeft) * 0.18);
   const bx0 = m.bodyLeft - bodyPad;
   const bx1 = m.bodyRight + bodyPad;
 
-  put('head', cutRect(body, bx0, 0, bx1, yChin + ov));
-  put('neck', cutRect(body, (m.bodyLeft + m.bodyRight) / 2 - (m.bodyRight - m.bodyLeft) * 0.22,
-                      yChin - ov, (m.bodyLeft + m.bodyRight) / 2 + (m.bodyRight - m.bodyLeft) * 0.22, yNeck + ov));
-  put('torso', cutRect(body, bx0, yNeck - ov, bx1, yWaist + ov));
-  put('pelvis', cutRect(body, bx0, yWaist - ov, bx1, yHip + ov));
+  const neckHalf = (m.bodyRight - m.bodyLeft) * 0.22;
+  const neckCx = (m.bodyLeft + m.bodyRight) / 2;
+  const vCuts = [
+    ['head', bx0, 0, bx1, yChin + ov],
+    ['neck', neckCx - neckHalf, yChin - ov, neckCx + neckHalf, yNeck + ov],
+    ['torso', bx0, yNeck - ov, bx1, yWaist + ov],
+    ['pelvis', bx0, yWaist - ov, bx1, yHip + ov]
+  ];
+  for (const [name, x0, y0, x1, y1] of vCuts) {
+    put(name, cutRect(body, x0, y0, x1, y1), Math.max(0, Math.round(x0)), Math.max(0, Math.round(y0)));
+  }
 
   // پاها: ستون چپ و راست جدا شده با فاصلهٔ اندازه‌گیری‌شدهٔ بین دو پا
   const legPad = Math.round((m.bodyRight - m.bodyLeft) * 0.10);
@@ -215,9 +259,14 @@ export function sliceBodySheet(sheet, options = {}) {
     { side: 'l', x0: m.legSplitX - legPad, x1: m.bodyRight + legPad }
   ];
   for (const leg of legs) {
-    put(`thigh_${leg.side}`, cutRect(body, leg.x0, yHip - ov, leg.x1, yKnee + ov));
-    put(`shin_${leg.side}`, cutRect(body, leg.x0, yKnee - ov, leg.x1, yAnkle + ov));
-    put(`foot_${leg.side}`, cutRect(body, leg.x0, yAnkle - ov, leg.x1, H));
+    const segs = [
+      [`thigh_${leg.side}`, yHip - ov, yKnee + ov],
+      [`shin_${leg.side}`, yKnee - ov, yAnkle + ov],
+      [`foot_${leg.side}`, yAnkle - ov, H]
+    ];
+    for (const [name, y0, y1] of segs) {
+      put(name, cutRect(body, leg.x0, y0, leg.x1, y1), Math.max(0, Math.round(leg.x0)), Math.max(0, Math.round(y0)));
+    }
   }
 
   // دست‌ها: نوار افقی شانه، از بدن به سمت بیرون تقسیم می‌شود و بعد عمودی می‌شود
@@ -225,6 +274,7 @@ export function sliceBodySheet(sheet, options = {}) {
   const ay0 = m.armTop - armPadY;
   const ay1 = m.armBottom + armPadY;
 
+  const armRects = new Map();
   const arms = [
     // دست سمت چپِ تصویر = سمت راست کاراکتر؛ شانه در لبهٔ راستِ نوار است
     { side: 'r', outer: m.armSpanLeft, inner: m.bodyLeft, dir: 'ccw' },
@@ -242,10 +292,68 @@ export function sliceBodySheet(sheet, options = {}) {
     };
     const u = ARM_SEGMENTS.upperarm;
     const f = u + ARM_SEGMENTS.forearm;
-    put(`upperarm_${arm.side}`, rotate90(seg(0, u), arm.dir));
-    put(`forearm_${arm.side}`, rotate90(seg(u, f), arm.dir));
-    put(`hand_${arm.side}`, rotate90(seg(f, 1), arm.dir));
+    for (const [name, a, b] of [[`upperarm_${arm.side}`, 0, u], [`forearm_${arm.side}`, u, f], [`hand_${arm.side}`, f, 1]]) {
+      const flat = seg(a, b);
+      const box = contentBoxWithin(flat);
+      put(name, rotate90(flat, arm.dir));
+      if (box) {
+        // دست در نقاشی افقی است ولی در ریگ آویزان؛ پس فقط «طول» و «ضخامت» قطعه نگه داشته
+        // می‌شود و جای آن بعداً از روی شانه حساب می‌شود.
+        armRects.set(name, { length: box.x1 - box.x0, thickness: box.y1 - box.y0, order: a });
+      }
+    }
   }
 
-  return { ok: true, parts, landmarks: m, warnings: m.warnings, body };
+  return { ok: true, parts, rects, armRects, landmarks: m, warnings: m.warnings, body };
+}
+
+/** قد هدف شکل در واحد جهانی، هم‌راستا با ROLE_WORLD_LAYOUT */
+export const TARGET_FIGURE_HEIGHT = 2630;
+
+/**
+ * ساخت چیدمان جهانی از روی خودِ برش‌ها، به‌جای جدول ثابت.
+ *
+ * چرا: جدول ثابت نسبت‌های یک کاراکتر فرضی را دارد و با نسبت‌های واقعی هر نقاشی نمی‌خواند.
+ * نتیجه‌اش این بود که شورت ۱۹۰×۱۱۳ به کادر ۴۳۰×۳۲۰ کش می‌آمد و شبیه دامن می‌شد، و دست‌ها
+ * با فاصله از شانه معلق می‌ماندند. حالا که همهٔ قطعات از یک نقاشی بریده می‌شوند، جای واقعی
+ * هر عضو در همان نقاشی معلوم است و چیدمان دقیقاً از آن ساخته می‌شود.
+ *
+ * دست‌ها استثنا هستند: در نقاشی افقی‌اند ولی در حالت استراحتِ ریگ آویزان‌اند، پس فقط طول و
+ * ضخامتشان از نقاشی برداشته می‌شود و زنجیره از شانهٔ اندازه‌گیری‌شده به پایین چیده می‌شود.
+ */
+export function deriveWorldLayout(sliced, targetHeight = TARGET_FIGURE_HEIGHT) {
+  const { rects, armRects, landmarks: m, body } = sliced;
+  const S = targetHeight / body.height;
+  const cx = (m.bodyLeft + m.bodyRight) / 2;
+
+  const layout = {};
+  for (const [name, r] of rects) {
+    layout[name] = {
+      x: Math.round(((r.x0 + r.x1) / 2 - cx) * S),
+      y: Math.round((body.height - (r.y0 + r.y1) / 2) * S),
+      w: Math.max(1, Math.round((r.x1 - r.x0) * S)),
+      h: Math.max(1, Math.round((r.y1 - r.y0) * S))
+    };
+  }
+
+  // زنجیرهٔ دست از شانه به پایین
+  const shoulderY = (body.height - (m.armTop + m.armBottom) / 2) * S;
+  for (const side of ['l', 'r']) {
+    const sign = side === 'l' ? 1 : -1;
+    // شانه کمی داخل لبهٔ تنه گرفته می‌شود تا بازو روی تنه هم‌پوشانی کند و درز نیفتد
+    const edge = side === 'l' ? m.bodyRight : m.bodyLeft;
+    const shoulderX = Math.round(((edge - cx) * S) - sign * 0.04 * targetHeight * 0.25);
+
+    let cursor = shoulderY;
+    for (const part of ['upperarm', 'forearm', 'hand']) {
+      const a = armRects.get(`${part}_${side}`);
+      if (!a) continue;
+      const h = Math.max(1, Math.round(a.length * S));
+      const w = Math.max(1, Math.round(a.thickness * S));
+      layout[`${part}_${side}`] = { x: shoulderX, y: Math.round(cursor - h / 2), w, h };
+      cursor -= h;
+    }
+  }
+
+  return layout;
 }
