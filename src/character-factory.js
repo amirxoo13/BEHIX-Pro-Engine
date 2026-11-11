@@ -280,6 +280,178 @@ export async function generateStaticPngWithVertex(prompt, options = {}) {
 }
 
 /**
+ * حذف پس‌زمینهٔ تصویرِ تولیدشده و تبدیل آن به کانال آلفای واقعی.
+ *
+ * چرا لازم است: مدل تصویر وقتی «پس‌زمینهٔ شفاف» می‌خواهیم، آلفای واقعی نمی‌دهد و به‌جای آن
+ * یک الگوی شطرنجیِ خاکستری-سفید (نماد شفافیت در ویرایشگرها) را داخل خود تصویر نقاشی می‌کند.
+ * آن تصویر کاملاً مات است، پس موتور آن را عیناً رسم می‌کند و دور هر عضو یک مربع شطرنجی می‌افتد.
+ *
+ * روش: رنگ‌های غالبِ حاشیهٔ تصویر به‌عنوان پالت پس‌زمینه یاد گرفته می‌شوند (تا ۴ رنگ، که هر دو
+ * تُنِ شطرنجی و نیز پس‌زمینهٔ تختِ کروما را پوشش می‌دهد)، سپس از تمام پیکسل‌های لبه یک flood-fill
+ * به داخل اجرا می‌شود و هر پیکسلِ هم‌رنگِ پس‌زمینه که از لبه قابل دسترسی باشد شفاف می‌شود.
+ * چون معیار «اتصال به لبه» است، رنگ مشابه در دل خودِ کاراکتر (مثل لوگوی پیراهن) پاک نمی‌شود.
+ *
+ * @returns {{pixels: Uint8Array, removed: number, total: number}|null} null یعنی تصویر از قبل آلفای سالم داشت
+ */
+export function keyOutBackgroundToAlpha(imgData, options = {}) {
+  const { width: w, height: h, pixels } = imgData;
+  const total = w * h;
+  if (total <= 0) return null;
+
+  const tol = Number.isFinite(options.tolerance) ? options.tolerance : 46;
+  const tolSq = tol * tol;
+
+  // اگر تصویر از قبل آلفای معنادار دارد (بیش از ۲٪ پیکسل نیمه‌شفاف/شفاف)، دست نمی‌زنیم
+  let alreadyTransparent = 0;
+  for (let i = 0; i < total; i++) {
+    if (pixels[i * 4 + 3] < 240) alreadyTransparent++;
+  }
+  if (alreadyTransparent > total * 0.02) return null;
+
+  // ۱) یادگیری رنگ‌های غالب حاشیه با کوانتیزه‌کردن به شبکهٔ ۳۲تایی
+  const borderCounts = new Map();
+  const addBorder = (x, y) => {
+    const p = (y * w + x) * 4;
+    const key = `${pixels[p] >> 5},${pixels[p + 1] >> 5},${pixels[p + 2] >> 5}`;
+    const prev = borderCounts.get(key);
+    if (prev) {
+      prev.n++; prev.r += pixels[p]; prev.g += pixels[p + 1]; prev.b += pixels[p + 2];
+    } else {
+      borderCounts.set(key, { n: 1, r: pixels[p], g: pixels[p + 1], b: pixels[p + 2] });
+    }
+  };
+  for (let x = 0; x < w; x++) { addBorder(x, 0); addBorder(x, h - 1); }
+  for (let y = 1; y < h - 1; y++) { addBorder(0, y); addBorder(w - 1, y); }
+
+  const borderPixels = 2 * w + 2 * (h - 2);
+  const palette = [...borderCounts.values()]
+    .filter(c => c.n >= borderPixels * 0.02)
+    .sort((a, b) => b.n - a.n)
+    .slice(0, 4)
+    .map(c => [c.r / c.n, c.g / c.n, c.b / c.n]);
+
+  if (!palette.length) return null;
+
+  const isBg = (p) => {
+    const r = pixels[p], g = pixels[p + 1], b = pixels[p + 2];
+    for (const [pr, pg, pb] of palette) {
+      const dr = r - pr, dg = g - pg, db = b - pb;
+      if (dr * dr + dg * dg + db * db <= tolSq) return true;
+    }
+    return false;
+  };
+
+  // ۲) flood-fill از تمام پیکسل‌های لبه به سمت داخل
+  const bg = new Uint8Array(total);
+  const queue = new Int32Array(total);
+  let qh = 0, qt = 0;
+  const push = (idx) => {
+    if (bg[idx]) return;
+    if (!isBg(idx * 4)) return;
+    bg[idx] = 1;
+    queue[qt++] = idx;
+  };
+  for (let x = 0; x < w; x++) { push(x); push((h - 1) * w + x); }
+  for (let y = 0; y < h; y++) { push(y * w); push(y * w + w - 1); }
+
+  while (qh < qt) {
+    const idx = queue[qh++];
+    const x = idx % w, y = (idx / w) | 0;
+    if (x > 0) push(idx - 1);
+    if (x < w - 1) push(idx + 1);
+    if (y > 0) push(idx - w);
+    if (y < h - 1) push(idx + w);
+  }
+
+  // ۳) اعمال شفافیت + حذف هالهٔ یک‌پیکسلی روی مرز (de-fringe)
+  const out = new Uint8Array(pixels);
+  let removed = 0;
+  for (let i = 0; i < total; i++) {
+    if (bg[i]) { out[i * 4 + 3] = 0; removed++; }
+  }
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = y * w + x;
+      if (bg[i] || out[i * 4 + 3] === 0) continue;
+      const touchesBg =
+        (x > 0 && bg[i - 1]) || (x < w - 1 && bg[i + 1]) ||
+        (y > 0 && bg[i - w]) || (y < h - 1 && bg[i + w]);
+      if (touchesBg && isBg(i * 4)) out[i * 4 + 3] = 96;
+    }
+  }
+
+  return { pixels: out, removed, total };
+}
+
+/**
+ * برش تصویر به کادر تنگِ محتوای غیرشفاف.
+ *
+ * چرا لازم است: تصویر تولیدشده ۱۰۲۴×۱۰۲۴ است و خودِ عضو بدن فقط تکهٔ کوچکی وسط آن است.
+ * اگر کل بوم روی استخوان چسبانده شود، عضو کوچک و در جای اشتباه رسم می‌شود و اعضای بدن از هم جدا می‌افتند.
+ */
+export function cropToContentBbox(imgData, alphaThreshold = 12) {
+  const { width: w, height: h, pixels } = imgData;
+  let minX = w, minY = h, maxX = -1, maxY = -1;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      if (pixels[(y * w + x) * 4 + 3] > alphaThreshold) {
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+    }
+  }
+  if (maxX < minX || maxY < minY) return null;
+
+  const cw = maxX - minX + 1;
+  const ch = maxY - minY + 1;
+  if (cw === w && ch === h) return imgData;
+
+  const out = new Uint8Array(cw * ch * 4);
+  for (let y = 0; y < ch; y++) {
+    const src = ((minY + y) * w + minX) * 4;
+    out.set(pixels.subarray(src, src + cw * 4), y * cw * 4);
+  }
+  return { width: cw, height: ch, pixels: out };
+}
+
+/**
+ * آماده‌سازی لایهٔ تولیدشده برای ریگ: حذف پس‌زمینه، برش تنگ، و محاسبهٔ اندازهٔ اتصال با حفظ نسبت ابعاد.
+ *
+ * اندازهٔ اتصال از نسبت واقعی محتوا حساب می‌شود (نه کشیدن اجباری به w/h جدول چیدمان) تا سر و تنه و
+ * دست با تناسب درست و دقیقاً روی استخوان خودشان بنشینند.
+ *
+ * @returns {{img: object, attW: number, attH: number}|null} null یعنی تصویر غیرقابل‌استفاده است و باید fallback شود
+ */
+export function prepareGeneratedLayer(imgData, layout, layerName) {
+  const keyed = keyOutBackgroundToAlpha(imgData);
+  let work = imgData;
+  if (keyed) {
+    const kept = keyed.total - keyed.removed;
+    // اگر تقریباً چیزی حذف نشد، یعنی پس‌زمینه شناسایی نشده و تصویر همچنان یک مربع مات است
+    if (keyed.removed < keyed.total * 0.03) {
+      return { error: `پس‌زمینهٔ تصویر لایهٔ "${layerName}" شناسایی نشد (تصویر مات است)` };
+    }
+    // اگر تقریباً همه‌چیز حذف شد، محتوایی باقی نمانده
+    if (kept < keyed.total * 0.005) {
+      return { error: `پس از حذف پس‌زمینه، محتوایی در لایهٔ "${layerName}" باقی نماند` };
+    }
+    work = { width: imgData.width, height: imgData.height, pixels: keyed.pixels };
+  }
+
+  const cropped = cropToContentBbox(work);
+  if (!cropped) return { error: `لایهٔ "${layerName}" پس از حذف پس‌زمینه کاملاً خالی بود` };
+
+  const scale = Math.min(layout.w / cropped.width, layout.h / cropped.height);
+  return {
+    img: cropped,
+    attW: Math.max(1, Math.round(cropped.width * scale)),
+    attH: Math.max(1, Math.round(cropped.height * scale))
+  };
+}
+
+/**
  * تولید پالت رنگی متمایز و قطعی بر اساس شناسه/نام کاراکتر تا هر یک از ۲۰ کاراکتر رنگ‌بندی و بافت منحصربه‌فرد داشته باشند.
  */
 function characterColorShift(charId, role) {
@@ -501,6 +673,7 @@ export async function buildCharacterRig(characterSpec, options = {}) {
   }
 
   const layerImages = new Map(); // imageName -> { width, height, pixels }
+  const layerFit = new Map();    // imageName -> { attW, attH } اندازهٔ اتصال با نسبت ابعاد حفظ‌شده
   const useVertexImages = Boolean(options.useVertexImage !== false && options.useVertexImagen !== false && process.env.VERTEX_AI_PROJECT);
 
   for (const layer of validLayers) {
@@ -512,18 +685,41 @@ export async function buildCharacterRig(characterSpec, options = {}) {
     const candidatePath = resolveSafeAssetPath(layer.file, `assets/${charId}/layers/${layer.name}.png`, options.allowedRoot || null);
     if (!options.forceRegenerate && existsSync(candidatePath)) {
       try {
-        imgData = decodePngBuffer(readFileSync(candidatePath));
+        // PNG موجود هم از همان مسیر آماده‌سازی عبور می‌کند تا دارایی‌های خرابِ ساخته‌شده در
+        // اجراهای قبلی (مربع مات با شطرنجی نقاشی‌شده) دوباره استفاده نشوند و بازسازی شوند.
+        const raw = decodePngBuffer(readFileSync(candidatePath));
+        const prepared = prepareGeneratedLayer(raw, layout, layer.name);
+        if (prepared.error) {
+          warnings.push(`PNG موجود لایهٔ "${layer.name}" کاراکتر "${charId}" قابل استفاده نبود: ${prepared.error}؛ بازسازی می‌شود`);
+        } else {
+          imgData = prepared.img;
+          layerFit.set(layer.name, { attW: prepared.attW, attH: prepared.attH });
+        }
       } catch (err) {
         warnings.push(`خواندن PNG لایهٔ "${layer.name}" ناموفق بود (${err.message})؛ بازسازی می‌شود`);
       }
     }
 
-    // ۲) اگر مدل تصویر Vertex فعال است، PNG ثابت لایه را با پرامپت شفاف می‌سازیم
+    // ۲) اگر مدل تصویر Vertex فعال است، PNG ثابت لایه را می‌سازیم.
+    // پس‌زمینه را «تختِ سرخابی» می‌خواهیم، نه «شفاف»: مدل آلفای واقعی تولید نمی‌کند و در پاسخ به
+    // درخواست شفافیت یک الگوی شطرنجی داخل تصویر نقاشی می‌کند. پس‌زمینهٔ تختِ کروما بعداً در کد
+    // به آلفای واقعی تبدیل می‌شود و نتیجه قطعی و قابل‌اتکاست.
     if (!imgData && useVertexImages) {
       try {
-        const prompt = `2D character body part layer "${layer.role}" (${layer.side || 'center'}) for character "${charName}" (${characterSpec?.appearance || 'stylized 2D animation character'}), isolated flat 2D sprite on transparent background, clean alpha channel, no video, single static part`;
+        const prompt = `Single isolated 2D character body part: "${layer.role}" (${layer.side || 'center'}) for character "${charName}" (${characterSpec?.appearance || 'stylized 2D animation character'}). ` +
+          `Flat stylized 2D animation sprite, front-facing, centered, filling most of the frame. ` +
+          `The background MUST be a completely flat, uniform, solid magenta (#FF00FF) fill. ` +
+          `Do NOT draw a checkerboard or transparency grid pattern. Do NOT add any shadow, gradient, texture, border, frame, text or watermark on the background. ` +
+          `Only the single body part on flat magenta — nothing else.`;
         const pngBuf = await generateStaticPngWithVertex(prompt);
-        imgData = decodePngBuffer(pngBuf);
+        const raw = decodePngBuffer(pngBuf);
+        const prepared = prepareGeneratedLayer(raw, layout, layer.name);
+        if (prepared.error) {
+          warnings.push(`لایهٔ "${layer.name}" کاراکتر "${charId}": ${prepared.error}؛ استفاده از لایهٔ سنتزشدهٔ CPU`);
+        } else {
+          imgData = prepared.img;
+          layerFit.set(layer.name, { attW: prepared.attW, attH: prepared.attH });
+        }
       } catch (err) {
         warnings.push(`تولید تصویر Vertex برای لایهٔ "${layer.name}" کاراکتر "${charId}" با خطا مواجه شد (${err.message})؛ استفاده از لایهٔ سنتزشدهٔ CPU`);
       }
@@ -532,6 +728,7 @@ export async function buildCharacterRig(characterSpec, options = {}) {
     // ۳) سنتز لایهٔ PNG با کانال آلفا روی CPU
     if (!imgData) {
       imgData = synthesizeLayerRgba(charId, layer.name, layer.role, layout.w, layout.h);
+      layerFit.set(layer.name, { attW: layout.w, attH: layout.h });
     }
 
     // ذخیرهٔ PNG واقعی لایه روی دیسک
@@ -562,7 +759,10 @@ export async function buildCharacterRig(characterSpec, options = {}) {
     const img = layerImages.get(layer.name);
     const layout = ROLE_WORLD_LAYOUT[layer.name] || ROLE_WORLD_LAYOUT[layer.role] || { x: 0, y: 1700, w: img.width, h: img.height };
     const offset = { x: layout.x, y: layout.y, rotation: 0, scale_x: 1, scale_y: 1, shear_x: 0, shear_y: 0 };
-    const mainAtt = makeAttachment(layer.name, layer.name, offset, layout.w, layout.h);
+    // اندازهٔ اتصال از کادر واقعیِ محتوای برش‌خورده می‌آید (با حفظ نسبت ابعاد)، نه کشیدن اجباری
+    // کل بوم به ابعاد جدول چیدمان — وگرنه عضو کوچک و در جای اشتباه رسم می‌شود.
+    const fit = layerFit.get(layer.name) || { attW: layout.w, attH: layout.h };
+    const mainAtt = makeAttachment(layer.name, layer.name, offset, fit.attW, fit.attH);
     const slot = makeSlot(layer.name, 0, mainAtt);
 
     if (layer.role === 'mouth') {
