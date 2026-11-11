@@ -14,13 +14,13 @@ bounds: 2, 686, 237, 479
 shin_r
 bounds: 241, 686, 222, 477
 shin_l
-bounds: 465, 686, 222, 477
+bounds: 465, 686, 221, 477
 upperarm_r
-bounds: 689, 686, 351, 404
+bounds: 688, 686, 351, 404
 upperarm_l
-bounds: 1042, 686, 351, 404
+bounds: 1041, 686, 351, 404
 pelvis
-bounds: 1395, 686, 410, 358
+bounds: 1394, 686, 410, 358
 forearm_r
 bounds: 2, 1167, 260, 273
 forearm_l
